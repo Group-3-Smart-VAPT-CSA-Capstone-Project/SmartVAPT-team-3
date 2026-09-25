@@ -1,0 +1,16 @@
+Age: 57
+Cache-Control: public, max-age=0, must-revalidate
+Content-Encoding: gzip
+Content-Type: text/html; charset=utf-8
+Date: Fri, 25 Sep 2026 09:46:13 GMT
+Etag: W/"c3fonbijd6d196"
+Server: Vercel
+Strict-Transport-Security: max-age=63072000
+Vary: rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch
+X-Matched-Path: /
+X-Nextjs-Prerender: 1
+X-Nextjs-Stale-Time: 300
+X-Powered-By: Next.js
+X-Vercel-Cache: HIT
+X-Vercel-Id: bom1::dub1::2pmnf-1790329630950-a2c258c215c1
+Transfer-Encoding: chunked

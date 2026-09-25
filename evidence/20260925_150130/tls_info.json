@@ -1,0 +1,13 @@
+{
+  "subject": {
+    "commonName": "tryhackme.com"
+  },
+  "issuer": {
+    "countryName": "US",
+    "organizationName": "Let's Encrypt",
+    "commonName": "YR2"
+  },
+  "notAfter": "Oct 22 02:34:13 2026 GMT",
+  "version": "TLSv1.3",
+  "cipher": "TLS_AES_128_GCM_SHA256"
+}
