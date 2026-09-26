@@ -90,19 +90,35 @@ class WebScanner:
             self.evidence.save_json("technologies", tech)
         return {"technologies": tech, "count": len(tech)}
 
-    def gobuster_scan(self, wordlist: str = "/usr/share/wordlists/dirb/common.txt") -> Dict[str, Any]:
+    def gobuster_scan(self, wordlist: str = "/usr/share/wordlists/dirb/common.txt",
+                      progress_cb=None) -> Dict[str, Any]:
         result = {"target": self.target, "found": [], "findings": [], "error": None}
         if not os.path.exists(wordlist):
             result["error"] = f"Wordlist not found: {wordlist}"
             return result
         cmd = ["gobuster", "dir", "-u", self.target, "-w", wordlist,
                "-q", "--no-error", "-t", "20"]
+        raw = ""
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if progress_cb is not None:
+                # Real-time mode: stream each discovered path as it appears.
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT, text=True,
+                                        bufsize=1)
+                lines = []
+                for line in proc.stdout:
+                    lines.append(line)
+                    stripped = line.strip()
+                    if stripped:
+                        progress_cb(stripped)
+                proc.wait(timeout=300)
+                raw = "".join(lines)
+            else:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                raw = proc.stdout
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
             result["error"] = str(e)
             return result
-        raw = proc.stdout
         if self.evidence:
             self.evidence.save_raw("gobuster_output", raw)
         for line in raw.splitlines():

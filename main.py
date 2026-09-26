@@ -23,6 +23,8 @@ with st.sidebar:
     scan_dns = st.checkbox("DNS / Email Security (SPF + DMARC)", value=True)
     ports = st.text_input("Port range", value="1-1000")
     run = st.button("Run SmartVAPT Scan", use_container_width=True)
+    live_output = st.sidebar.toggle("Live scan output", value=True,
+                                    help="Stream nmap/gobuster progress in real time")
     st.markdown("---")
     st.caption("Only scan systems you are authorized to test.")
 
@@ -38,6 +40,20 @@ if run:
     findings = FindingSet()
     results = {"target": target, "scan_id": scan_id}
 
+    # Real-time console: scanner status lines are appended as they arrive.
+    if live_output:
+        log_area = st.empty()
+        log_lines: list[str] = []
+
+        def log_line(line: str):
+            log_lines.append(line)
+            if len(log_lines) > 200:          # keep the view bounded
+                del log_lines[:-200]
+            log_area.code("\n".join(log_lines))
+    else:
+        def log_line(line: str):
+            pass
+
     # ----------------------------------------------------------------
     # 1) NETWORK
     # ----------------------------------------------------------------
@@ -48,7 +64,8 @@ if run:
                                 .replace("https://", "")
                                 .split("/")[0].split(":")[0])
             ns = NetworkScanner(net_target, evidence=evidence)
-            net_result = ns.scan(ports=ports, os_detect=False)
+            net_result = ns.scan(ports=ports, os_detect=False,
+                                 progress_cb=log_line if live_output else None)
             results["network"] = net_result
             from findings import Finding
             for f in net_result.get("findings", []):
@@ -74,7 +91,8 @@ if run:
             web_result = {
                 "headers": ws.check_headers(),
                 "technologies": ws.detect_technologies(),
-                "directories": ws.gobuster_scan(),
+                "directories": ws.gobuster_scan(
+                    progress_cb=log_line if live_output else None),
                 "tls": ws.analyze_tls(),
                 "robots_sitemap": ws.fetch_robots_sitemap(),
                 "sensitive_paths": ws.probe_sensitive_paths(),
