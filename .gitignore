@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+bin/
+include/
+lib/
+lib64
+pyvenv.cfg
+share/
+
+# Scan artifacts / generated reports
+evidence/
+*.pdf
+
+# Environment / secrets
+.env

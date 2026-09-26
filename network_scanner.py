@@ -73,11 +73,24 @@ class NetworkScanner:
         for script_name, output in port_info.get("script", {}).items():
             if "vulners" not in script_name.lower():
                 continue
+            seen = set()
             for line in output.splitlines():
-                m = re.search(r"(CVE-\d{4}-\d{4,7})\s+([\d.]+)", line)
+                # Vulners output formats vary: "CVE-XXXX-NNNN 9.8" or vector
+                # strings like "CVE-XXXX-NNNN/CVSS:3.1/AV:N/... 8.1". Try the
+                # simple format first, then fall back to a trailing score.
+                m = re.search(r"(CVE-\d{4}-\d{4,7})\s+(?:CVSS:)?(\d+(?:\.\d+)?)\b", line)
+                if not m:
+                    m = re.search(r"(CVE-\d{4}-\d{4,7})\S*\s+.*?(\d\.\d)\s*$", line)
                 if m:
-                    score = float(m.group(2))
-                    cves.append({"id": m.group(1), "cvss": score,
+                    cid = m.group(1)
+                    if cid in seen:
+                        continue
+                    seen.add(cid)
+                    try:
+                        score = float(m.group(2))
+                    except ValueError:
+                        continue
+                    cves.append({"id": cid, "cvss": score,
                                  "severity": self._score_to_severity(score),
                                  "raw": line.strip()})
         return cves

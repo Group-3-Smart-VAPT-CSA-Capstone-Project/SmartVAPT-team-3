@@ -57,8 +57,8 @@ if run:
                         k: v for k, v in f.items()
                         if k in Finding.__dataclass_fields__
                     }))
-                except Exception:
-                    pass
+                except Exception as fe:
+                    st.warning(f"Skipped malformed finding: {fe}")
         except Exception as e:
             results["network"] = {"error": str(e)}
     else:
@@ -90,8 +90,8 @@ if run:
                             k: v for k, v in f.items()
                             if k in Finding.__dataclass_fields__
                         }))
-                    except Exception:
-                        pass
+                    except Exception as fe:
+                        st.warning(f"Skipped malformed finding: {fe}")
         except Exception as e:
             results["web"] = {"error": str(e)}
     else:
@@ -116,8 +116,8 @@ if run:
                         k: v for k, v in f.items()
                         if k in Finding.__dataclass_fields__
                     }))
-                except Exception:
-                    pass
+                except Exception as fe:
+                    st.warning(f"Skipped malformed finding: {fe}")
         except Exception as e:
             results["dns"] = {"error": str(e)}
     else:
@@ -139,6 +139,10 @@ if run:
             "technical_remediation": [],
             "conclusion": "",
         }
+
+    # Expose the unified, deduplicated findings list so report_gen's
+    # "Full Findings List" appendix is populated.
+    results["findings"] = findings.to_dict_list()
 
     # ----------------------------------------------------------------
     # 5) PDF

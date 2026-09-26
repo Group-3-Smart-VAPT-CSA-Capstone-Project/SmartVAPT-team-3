@@ -15,7 +15,11 @@ pip install --upgrade pip wheel setuptools
 pip install -r requirements.txt
 
 echo "[*] Setting Nmap capabilities..."
-sudo setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip $(readlink -f $(which python3)) || true
+NMAP_BIN="$(readlink -f "$(which nmap)" 2>/dev/null)" || true
+if [ -n "$NMAP_BIN" ]; then
+    sudo setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip "$NMAP_BIN" || \
+        echo "[!] Could not set capabilities on $NMAP_BIN (run scans with sudo instead)"
+fi
 
 echo "[*] Creating smartvapt alias..."
 SMARTVAPT_DIR="$(pwd)"

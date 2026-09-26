@@ -1,4 +1,5 @@
 import subprocess, re, ssl, socket, requests, dns.resolver, os
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 from typing import Dict, List, Any
 from findings import Finding
@@ -130,10 +131,12 @@ class WebScanner:
         if parsed.scheme != "https":
             return {"enabled": False, "note": "Target not using HTTPS", "findings": []}
         host = parsed.hostname
-        result = {"enabled": True, "host": host, "cert": {}, "issues": [], "findings": []}
+        port = parsed.port or 443
+        result = {"enabled": True, "host": host, "port": port, "cert": {},
+                  "issues": [], "findings": []}
         try:
             ctx = ssl.create_default_context()
-            with socket.create_connection((host, 443), timeout=self.timeout) as sock:
+            with socket.create_connection((host, port), timeout=self.timeout) as sock:
                 with ctx.wrap_socket(sock, server_hostname=host) as ssock:
                     cert = ssock.getpeercert()
                     result["cert"] = {"subject": dict(x[0] for x in cert.get("subject", [])),
@@ -143,6 +146,22 @@ class WebScanner:
                                       "cipher": ssock.cipher()[0] if ssock.cipher() else None}
                     if ssock.version() in ("TLSv1", "TLSv1.1"):
                         result["issues"].append(f"Outdated {ssock.version()}")
+                    # Certificate expiry validation
+                    not_after = cert.get("notAfter")
+                    if not_after:
+                        try:
+                            from email.utils import parsedate_to_datetime
+                            exp = parsedate_to_datetime(not_after)
+                            days_left = (exp - datetime.now(timezone.utc)).days
+                            result["cert"]["days_until_expiry"] = days_left
+                            if days_left < 0:
+                                result["issues"].append(
+                                    f"TLS certificate EXPIRED {-days_left} day(s) ago")
+                            elif days_left <= 30:
+                                result["issues"].append(
+                                    f"TLS certificate expires soon ({days_left} days left)")
+                        except (TypeError, ValueError):
+                            pass
         except Exception as e:
             result["issues"].append(str(e))
             return result
