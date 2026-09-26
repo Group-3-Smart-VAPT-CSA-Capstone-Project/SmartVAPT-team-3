@@ -19,3 +19,6 @@ evidence/
 
 # Environment / secrets
 .env
+
+# Leftover venv internals
+etc/
