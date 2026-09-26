@@ -1,0 +1,219 @@
+"""CVSS v3.1 base-score calculation and severity-based remediation playbooks."""
+from typing import Optional, Dict, List
+
+# ----------------------------------------------------------------------
+# CVSS v3.1 vector parsing / scoring
+# ----------------------------------------------------------------------
+_AVI = {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.20}
+_CUI = {"H": 0.56, "L": 0.22, "N": 0.0}
+_SCOPE_CHANGED_K = 7.62   # 8 * Impact when Scope = Changed
+_SCOPE_UNCHANGED_K = 7.52  # 10.41 * (1 - Impact) when Scope = Unchanged
+
+
+def parse_vector(vector: str) -> Dict[str, str]:
+    """Parse 'CVSS:3.1/AV:N/AC:L/...' into a metric dict (lower-cased keys)."""
+    parts = {}
+    for chunk in vector.split("/"):
+        if ":" in chunk:
+            k, _, v = chunk.partition(":")
+            parts[k.strip().upper()] = v.strip().upper()
+    return parts
+
+
+def cvss_v31_base_score(vector: str) -> Optional[float]:
+    """Compute the CVSS v3.1 base score from a vector string.
+
+    Returns None when the vector is malformed or not a v3.x vector.
+    """
+    if not vector or "CVSS:3" not in vector:
+        return None
+    m = parse_vector(vector)
+    try:
+        av = _AVI[m["AV"]]
+        ac = 0.77 if m["AC"] == "L" else 0.44  # Low complexity = easier = higher weight
+        pri = {
+            ("N", False): 0.85, ("L", False): 0.62, ("H", False): 0.27,
+            ("N", True): 0.85, ("L", True): 0.68, ("H", True): 0.50,
+        }[(m["PR"], m.get("S") == "C")]
+        ui = 0.62 if m["UI"] == "R" else 0.85  # Required = harder = lower weight
+        c = _CUI[m["C"]]
+        i = _CUI[m["I"]]
+        a = _CUI[m["A"]]
+    except KeyError:
+        return None
+
+    iss = 1 - ((1 - c) * (1 - i) * (1 - a))
+    # CVSS v3.1 spec:
+    #   Scope Unchanged: Impact = 6.42 * ISS
+    #   Scope Changed:   ISCBase = min(7.52*(ISS - 0.0293) - 3.25*(ISS*0.9731 - 0.02)^13, 10)
+    #                    Impact = 7.62 * ISCBase
+    if m.get("S") == "C":
+        isc_base = min(7.52 * (iss - 0.0293) - 3.25 * (iss * 0.9731 - 0.02) ** 13, 10)
+        impact = 7.62 * isc_base
+    else:
+        impact = 6.42 * iss
+    exploitability = 8.22 * av * ac * pri * ui
+
+    if impact <= 0:
+        return 0.0
+    if m.get("S") == "C":
+        # Spec: Scope-Changed Impact is already capped at 10 (via ISCBase),
+        # so any non-zero impact saturates the base score to 10.
+        raw = min(impact + 1.08 * exploitability, 10)
+    else:
+        raw = min(exploitability + impact, 10)
+    return _roundup(raw)
+
+
+def _roundup(x: float) -> float:
+    """CVSS 'Roundup' — smallest number with 1 decimal >= x."""
+    import math
+    return round(math.ceil(round(x, 10) * 10 - 1e-9) / 10, 1)
+
+
+def severity_from_cvss(score: float) -> str:
+    if score >= 9.0:
+        return "critical"
+    if score >= 7.0:
+        return "high"
+    if score >= 4.0:
+        return "medium"
+    if score > 0:
+        return "low"
+    return "info"
+
+
+# ----------------------------------------------------------------------
+# Remediation playbooks (offline, deterministic)
+# ----------------------------------------------------------------------
+_PLAYBOOKS: Dict[str, Dict] = {
+    "missing_header": {
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "steps": [
+            "Identify the web server / reverse proxy in front of the application.",
+            "Add the missing security header globally so every response carries it.",
+            "Verify with a re-scan that the header is present on all endpoints.",
+        ],
+        "commands": {
+            "nginx": ["add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;",
+                      "add_header X-Frame-Options \"DENY\" always;",
+                      "add_header X-Content-Type-Options \"nosniff\" always;"],
+            "apache": ["Header always set Strict-Transport-Security \"max-age=31536000\"",
+                       "Header always set X-Frame-Options \"DENY\"",
+                       "Header always set X-Content-Type-Options \"nosniff\""],
+        },
+    },
+    "sensitive_path": {
+        "owasp": "A01:2021 - Broken Access Control",
+        "steps": [
+            "Remove the exposed file from the web root immediately.",
+            "Rotate any credentials/secrets that may have leaked (.env, id_rsa, AWS keys).",
+            "Add deny rules at the web server for dotfiles and backup extensions.",
+            "Review access logs for prior GET requests to this path (assume compromise).",
+        ],
+        "commands": {
+            "nginx": ["location ~ /\\.(env|git|aws) { deny all; }",
+                      "location ~ \\.(bak|sql|zip|tar\\.gz)$ { deny all; }"],
+            "apache": ["<FilesMatch \"^\\.(env|git|ht)\"> Require all denied </FilesMatch>",
+                       "Redirect 404 /backup.zip"],
+        },
+    },
+    "tls": {
+        "owasp": "A02:2021 - Cryptographic Failures",
+        "steps": [
+            "Disable TLS 1.0/1.1; require TLS 1.2+ with AEAD cipher suites.",
+            "Renew certificates expiring within 30 days and automate renewal (ACME).",
+            "Enable HSTS after HTTPS is fully deployed.",
+        ],
+        "commands": {
+            "nginx": ["ssl_protocols TLSv1.2 TLSv1.3;",
+                      "ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;",
+                      "add_header Strict-Transport-Security \"max-age=31536000\" always;"],
+            "certbot": ["certbot renew --cert-name <name>", "certbot --nginx -d example.com"],
+        },
+    },
+    "email_security": {
+        "owasp": "A07:2021 - Identification and Authentication Failures",
+        "steps": [
+            "Publish an SPF record listing authorized sending IPs/services.",
+            "Publish DMARC starting with p=none, monitor reports, then move to p=quarantine/reject.",
+            "Enforce MTA-STS and DNSSEC where supported by your registrar.",
+        ],
+        "commands": {
+            "dns": ["TXT @: \"v=spf1 ip4:<server-ip> include:_spf.<provider> -all\"",
+                    "TXT _dmarc: \"v=DMARC1; p=none; rua=mailto:dmarc@<domain>\""],
+        },
+    },
+    "cve": {
+        "owasp": "A06:2021 - Vulnerable and Outdated Components",
+        "steps": [
+            "Inventory the affected service/version from the scan evidence.",
+            "Upgrade to the vendor-patched release; if unavailable, mitigate via firewall/ACL.",
+            "Re-run the scan to confirm the CVE no longer appears.",
+        ],
+        "commands": {
+            "apt": ["apt-get update && apt-get install --only-upgrade <package>"],
+            "verify": ["nmap -sV -p <port> <target>"],
+        },
+    },
+    "subdomain_takeover": {
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "steps": [
+            "Remove the dangling CNAME from DNS or provision the service again.",
+            "Claim the orphaned resource yourself to prevent attacker takeover.",
+            "Add monitoring for future dangling DNS records.",
+        ],
+        "commands": {
+            "dns": ["Delete CNAME <sub>.<domain> -> <orphaned-service-endpoint>"],
+        },
+    },
+    "default": {
+        "owasp": "",
+        "steps": ["Investigate the finding evidence and confirm impact before remediation."],
+        "commands": {},
+    },
+}
+
+_KEYWORD_MAP = [
+    (("security header",), "missing_header"),
+    (("sensitive", "path exposed", "publicly accessible", ".env", ".git"), "sensitive_path"),
+    (("tls", "certificate", "https"), "tls"),
+    (("spf", "dmarc", "email"), "email_security"),
+    (("cve-",), "cve"),
+    (("takeover", "dangling"), "subdomain_takeover"),
+]
+
+
+def playbook_for(title: str, description: str = "") -> Dict:
+    """Return the remediation playbook matching a finding's title/description."""
+    text = f"{title} {description}".lower()
+    for keywords, name in _KEYWORD_MAP:
+        if any(k in text for k in keywords):
+            pb = _PLAYBOOKS[name]
+            return {"owasp": pb["owasp"] or None, "steps": list(pb["steps"]),
+                    "commands": pb["commands"]}
+    return {"owasp": None, "steps": list(_PLAYBOOKS["default"]["steps"]),
+            "commands": {}}
+
+
+def enrich_findings(findings: List[dict]) -> List[dict]:
+    """Attach cvss_score (if vector available), normalized severity and a
+    remediation playbook to each finding dict. Mutates and returns the list."""
+    for f in findings:
+        vec = f.get("cvss_vector")
+        if vec and f.get("cvss") in (None, 0):
+            score = cvss_v31_base_score(vec)
+            if score is not None:
+                f["cvss"] = score
+        if f.get("cvss") is not None:
+            try:
+                f["severity"] = severity_from_cvss(float(f["cvss"]))
+            except (TypeError, ValueError):
+                pass
+        if not f.get("remediation_steps"):
+            pb = playbook_for(f.get("title", ""), f.get("description", ""))
+            f["remediation_steps"] = pb["steps"]
+            f["remediation_commands"] = pb["commands"]
+            if pb["owasp"] and not f.get("owasp"):
+                f["owasp"] = pb["owasp"]
+    return findings

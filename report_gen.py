@@ -295,10 +295,55 @@ def _render_appendix(pdf, scan_data: dict):
             body(f"  Record: {dmarc.get('record')}")
             body(f"  Policy: {dmarc.get('policy')}")
 
+    # ---------- Nuclei (extended web vector) ----------
+    nuc = scan_data.get("nuclei", {}) or {}
+    if nuc.get("matched"):
+        h2("E. Nuclei Template Matches")
+        for m in nuc["matched"][:40]:
+            body(f"  - [{str(m.get('severity','?')).upper()}] "
+                 f"{m.get('name')} ({m.get('template')}) -> {m.get('url')}")
+
+    # ---------- Subdomains / takeover ----------
+    sub = scan_data.get("subdomains", {}) or {}
+    if sub.get("subdomains"):
+        h2("F. Subdomain Enumeration")
+        body(f"Subdomains found: {len(sub['subdomains'])}")
+        for s in sub["subdomains"][:40]:
+            cname = f"  CNAME: {s['cname']}" if s.get("cname") else ""
+            body(f"  - {s.get('host')}  "
+                 f"({', '.join(s.get('sources', []))}){cname}")
+        risks = sub.get("takeover_risks", [])
+        if risks:
+            body(f"\nPOTENTIAL SUBDOMAIN TAKEOVERS ({len(risks)}):")
+            for r in risks:
+                body(f"  !! {r.get('host')} -> {r.get('cname')} "
+                     f"[{r.get('service')}] fingerprint={r.get('matched')}")
+
+    # ---------- API surface ----------
+    api = scan_data.get("api", {}) or {}
+    if api.get("endpoints"):
+        h2("G. API Surface")
+        for ep in api["endpoints"]:
+            methods = ",".join(ep.get("methods", [])) if ep.get("methods") else "-"
+            body(f"  - {ep.get('path')}  HTTP {ep.get('status')}  "
+                 f"type={ep.get('type','-')}  methods={methods}")
+
+    # ---------- Baseline diff ----------
+    diff = scan_data.get("diff")
+    if isinstance(diff, dict):
+        h2("H. Baseline Diff (continuous monitoring)")
+        body(f"New: {len(diff.get('new', []))}   Fixed: {len(diff.get('fixed', []))}   "
+             f"Persisting: {len(diff.get('persisting', []))}   "
+             f"Escalated: {len(diff.get('escalated', []))}")
+        for f in diff.get("new", [])[:20]:
+            body(f"  + NEW [{str(f.get('severity','')).upper()}] {f.get('title')}")
+        for f in diff.get("fixed", [])[:20]:
+            body(f"  - FIXED {f.get('title')}")
+
     # ---------- Findings ----------
     findings = scan_data.get("findings", [])
     if findings:
-        h2("E. Full Findings List")
+        h2("I. Full Findings List")
         for i, f in enumerate(findings, 1):
             sev = str(f.get("severity", "")).lower()
             pdf.set_font("DejaVu", "B", 10)
@@ -313,4 +358,9 @@ def _render_appendix(pdf, scan_data: dict):
             pdf.multi_cell(0, 4, f"    Target: {f.get('target','')}")
             pdf.set_x(pdf.l_margin)
             pdf.multi_cell(0, 4, f"    Evidence: {str(f.get('evidence',''))[:200]}")
+            steps = f.get("remediation_steps") or []
+            if steps:
+                pdf.set_x(pdf.l_margin)
+                pdf.multi_cell(0, 4,
+                               f"    Remediation: {'; '.join(steps)[:240]}")
             pdf.ln(1)

@@ -1,4 +1,5 @@
 import subprocess, re, ssl, socket, requests, dns.resolver, os
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 from typing import Dict, List, Any
 from findings import Finding
@@ -26,13 +27,37 @@ SENSITIVE_PATHS = [".env", ".git/config", "backup.zip", "backup.tar.gz",
                    "config.php.bak", "wp-config.php.bak", "db.sql",
                    ".htpasswd", "id_rsa", ".aws/credentials"]
 
+def parse_auth_headers(raw: str) -> Dict[str, str]:
+    """Parse a user-supplied block of HTTP headers (one 'Name: value' per
+    line) into a dict. Blank lines and '#' comments are ignored.
+
+    Typical use is authenticated scanning: Cookie, Authorization, etc.
+    """
+    headers: Dict[str, str] = {}
+    for line in (raw or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # tolerate an accidental leading "Header-Name::" double colon
+        if ":" not in line:
+            continue
+        name, _, value = line.partition(":")
+        name = name.strip()
+        value = value.strip()
+        if name:
+            headers[name] = value
+    return headers
+
+
 class WebScanner:
-    def __init__(self, target_url: str, evidence: EvidenceStore = None, timeout: int = 10):
+    def __init__(self, target_url: str, evidence: EvidenceStore = None, timeout: int = 10,
+                 auth_headers: Dict[str, str] = None):
         if not target_url.startswith(("http://", "https://")):
             target_url = "http://" + target_url
         self.target = target_url.rstrip("/")
         self.timeout = timeout
         self.evidence = evidence
+        self.auth_headers = dict(auth_headers or {})
         self._finding_idx = 0
 
     def _next_id(self) -> str:
@@ -43,7 +68,8 @@ class WebScanner:
         result = {"url": self.target, "missing": [], "present": [],
                   "server": None, "findings": [], "error": None}
         try:
-            resp = requests.get(self.target, timeout=self.timeout, allow_redirects=True)
+            resp = requests.get(self.target, timeout=self.timeout, allow_redirects=True,
+                            headers=self.auth_headers or None)
         except requests.RequestException as e:
             result["error"] = str(e)
             return result
@@ -72,7 +98,8 @@ class WebScanner:
     def detect_technologies(self) -> Dict[str, Any]:
         tech = []
         try:
-            resp = requests.get(self.target, timeout=self.timeout)
+            resp = requests.get(self.target, timeout=self.timeout,
+                            headers=self.auth_headers or None)
         except requests.RequestException as e:
             return {"error": str(e), "technologies": []}
         for h, label in TECH_SIGNATURES.items():
@@ -89,19 +116,48 @@ class WebScanner:
             self.evidence.save_json("technologies", tech)
         return {"technologies": tech, "count": len(tech)}
 
-    def gobuster_scan(self, wordlist: str = "/usr/share/wordlists/dirb/common.txt") -> Dict[str, Any]:
+    def gobuster_scan(self, wordlist: str = "/usr/share/wordlists/dirb/common.txt",
+                      progress_cb=None, stop_flag=None) -> Dict[str, Any]:
         result = {"target": self.target, "found": [], "findings": [], "error": None}
         if not os.path.exists(wordlist):
             result["error"] = f"Wordlist not found: {wordlist}"
             return result
         cmd = ["gobuster", "dir", "-u", self.target, "-w", wordlist,
                "-q", "--no-error", "-t", "20"]
+        # Authenticated scanning: pass session cookie / extra headers through.
+        cookie = ""
+        for k, v in self.auth_headers.items():
+            if k.lower() == "cookie":
+                cookie = v
+            else:
+                cmd += ["-H", f"{k}: {v}"]
+        if cookie:
+            cmd += ["-c", cookie]
+        raw = ""
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if progress_cb is not None:
+                # Real-time mode: stream each discovered path as it appears.
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT, text=True,
+                                        bufsize=1)
+                lines = []
+                for line in proc.stdout:
+                    lines.append(line)
+                    stripped = line.strip()
+                    if stripped:
+                        progress_cb(stripped)
+                    if stop_flag and stop_flag.get("stop"):
+                        proc.terminate()
+                        result["error"] = "Stopped by user"
+                        break
+                proc.wait(timeout=300)
+                raw = "".join(lines)
+            else:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                raw = proc.stdout
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
             result["error"] = str(e)
             return result
-        raw = proc.stdout
         if self.evidence:
             self.evidence.save_raw("gobuster_output", raw)
         for line in raw.splitlines():
@@ -130,10 +186,12 @@ class WebScanner:
         if parsed.scheme != "https":
             return {"enabled": False, "note": "Target not using HTTPS", "findings": []}
         host = parsed.hostname
-        result = {"enabled": True, "host": host, "cert": {}, "issues": [], "findings": []}
+        port = parsed.port or 443
+        result = {"enabled": True, "host": host, "port": port, "cert": {},
+                  "issues": [], "findings": []}
         try:
             ctx = ssl.create_default_context()
-            with socket.create_connection((host, 443), timeout=self.timeout) as sock:
+            with socket.create_connection((host, port), timeout=self.timeout) as sock:
                 with ctx.wrap_socket(sock, server_hostname=host) as ssock:
                     cert = ssock.getpeercert()
                     result["cert"] = {"subject": dict(x[0] for x in cert.get("subject", [])),
@@ -143,6 +201,22 @@ class WebScanner:
                                       "cipher": ssock.cipher()[0] if ssock.cipher() else None}
                     if ssock.version() in ("TLSv1", "TLSv1.1"):
                         result["issues"].append(f"Outdated {ssock.version()}")
+                    # Certificate expiry validation
+                    not_after = cert.get("notAfter")
+                    if not_after:
+                        try:
+                            from email.utils import parsedate_to_datetime
+                            exp = parsedate_to_datetime(not_after)
+                            days_left = (exp - datetime.now(timezone.utc)).days
+                            result["cert"]["days_until_expiry"] = days_left
+                            if days_left < 0:
+                                result["issues"].append(
+                                    f"TLS certificate EXPIRED {-days_left} day(s) ago")
+                            elif days_left <= 30:
+                                result["issues"].append(
+                                    f"TLS certificate expires soon ({days_left} days left)")
+                        except (TypeError, ValueError):
+                            pass
         except Exception as e:
             result["issues"].append(str(e))
             return result
@@ -161,7 +235,8 @@ class WebScanner:
     def fetch_robots_sitemap(self) -> Dict[str, Any]:
         result = {"robots": None, "sitemap": None, "disallowed": [], "findings": []}
         try:
-            r = requests.get(f"{self.target}/robots.txt", timeout=self.timeout)
+            r = requests.get(f"{self.target}/robots.txt", timeout=self.timeout,
+                         headers=self.auth_headers or None)
             if r.status_code == 200:
                 result["robots"] = r.text[:5000]
                 for line in r.text.splitlines():
@@ -174,7 +249,8 @@ class WebScanner:
         except requests.RequestException:
             pass
         try:
-            r = requests.get(f"{self.target}/sitemap.xml", timeout=self.timeout)
+            r = requests.get(f"{self.target}/sitemap.xml", timeout=self.timeout,
+                         headers=self.auth_headers or None)
             if r.status_code == 200:
                 result["sitemap"] = r.text[:5000]
                 if self.evidence:
@@ -198,7 +274,8 @@ class WebScanner:
         for path in SENSITIVE_PATHS:
             url = f"{self.target}/{path}"
             try:
-                r = requests.get(url, timeout=self.timeout, allow_redirects=False)
+                r = requests.get(url, timeout=self.timeout, allow_redirects=False,
+                         headers=self.auth_headers or None)
                 if r.status_code in (200, 206):
                     result["found"].append({"path": path, "status": r.status_code,
                                             "size": len(r.content)})
@@ -219,7 +296,8 @@ class WebScanner:
     def analyze_redirects(self) -> Dict[str, Any]:
         result = {"chain": [], "findings": []}
         try:
-            r = requests.get(self.target, timeout=self.timeout, allow_redirects=True)
+            r = requests.get(self.target, timeout=self.timeout, allow_redirects=True,
+                         headers=self.auth_headers or None)
             for h in r.history:
                 result["chain"].append({"status": h.status_code, "url": h.url,
                                         "location": h.headers.get("Location")})

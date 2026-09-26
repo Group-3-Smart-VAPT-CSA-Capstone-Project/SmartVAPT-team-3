@@ -27,7 +27,7 @@ The developers accept no liability for misuse.
 | **Findings Engine** | `findings.py` | Normalizes all findings, deduplicates, assigns severity (Critical / High / Medium / Low / Info) |
 | **Evidence Store** | `evidence.py` | Saves raw tool output per scan (`evidence/<scan_id>/`) so every finding is reproducible |
 | **AI Reporting** | Google Gemini (`ai_engine.py`) | Executive summary, per-finding impact analysis, prioritized remediation roadmap (optional — requires API key) |
-| **PDF Report** | WeasyPrint | Branded assessment report: `SmartVAPT_<scan_id>.pdf` |
+| **PDF Report** | fpdf2 | Branded assessment report: `SmartVAPT_<scan_id>.pdf` |
 
 ### Sample output from a real run (`scanme.nmap.org`)
 
@@ -71,7 +71,7 @@ sudo apt install -y nmap gobuster dnsutils libpango-1.0-0 \
     libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 fonts-dejavu-extra
 ```
 > `gobuster` is optional — the dirb vector degrades gracefully if it's missing.
-> WeasyPrint needs the Pango/GDK libraries above, plus DejaVu fonts for PDF rendering.
+> PDF generation uses pure-Python fpdf2; only the DejaVu fonts are needed for proper rendering.
 
 ---
 
@@ -135,7 +135,7 @@ SmartVAPT/
 ├── ai_engine.py         # Gemini-powered narrative generation
 ├── findings.py          # Finding dataclass + severity normalization
 ├── evidence.py          # Per-scan raw evidence store
-├── report_gen.py        # WeasyPrint PDF report generator
+├── report_gen.py        # fpdf2 PDF report generator
 ├── requirements.txt
 ├── install.sh           # Automated setup script
 └── evidence/<scan_id>/  # Raw tool output for every scan
@@ -159,7 +159,7 @@ SmartVAPT/
 
 | Symptom | Fix |
 |---|---|
-| `WeasyPrint could not import some external libraries` | Install the Pango/GDK apt packages listed in **Requirements** |
+| PDF renders with missing glyphs | Ensure DejaVu fonts are installed (`fonts-dejavu-core`) |
 | PDF text/font errors | `sudo apt install fonts-dejavu-extra` |
 | Nmap results empty on ports <1024 | Run as root, or give Nmap raw-socket caps: `sudo setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip $(which nmap)` |
 | "GEMINI_API_KEY not configured" | `export GEMINI_API_KEY=...` before launching Streamlit |
