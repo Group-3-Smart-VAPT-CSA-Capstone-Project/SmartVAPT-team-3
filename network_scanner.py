@@ -53,7 +53,8 @@ class NetworkScanner:
 
     def scan(self, ports: str = "1-1000", os_detect: bool = True,
              arguments: str = None,
-             progress_cb: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+             progress_cb: Optional[Callable[[str], None]] = None,
+             stop_flag: Optional[Dict[str, bool]] = None) -> Dict[str, Any]:
         """Run an nmap scan.
 
         If *progress_cb* is supplied, nmap is executed as a live subprocess
@@ -66,7 +67,7 @@ class NetworkScanner:
                 arguments += " -O --osscan-guess"
 
         if progress_cb is not None:
-            xml_path = self._scan_streaming(ports, arguments, progress_cb)
+            xml_path = self._scan_streaming(ports, arguments, progress_cb, stop_flag)
             if xml_path is None:
                 # streaming path failed before producing results; fall back
                 self.nm.scan(hosts=self.target, ports=ports, arguments=arguments)
@@ -99,7 +100,8 @@ class NetworkScanner:
             return getattr(nm, "xmloutput", "") or ""
 
     def _scan_streaming(self, ports: str, arguments: str,
-                        progress_cb: Callable[[str], None]) -> Optional[str]:
+                        progress_cb: Callable[[str], None],
+                        stop_flag: Optional[Dict[str, bool]] = None) -> Optional[str]:
         """Run nmap via subprocess, streaming status lines to progress_cb.
 
         Returns the path of a temporary XML file with the scan results, or
@@ -120,7 +122,15 @@ class NetworkScanner:
         for line in proc.stderr:
             line = line.strip()
             if line:
-                progress_cb(line)
+                progress_cb(line)  # may raise (user stop) -> handled below
+            if stop_flag and stop_flag.get("stop"):
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    proc.kill()
+                os.unlink(xml_path)
+                raise RuntimeError("Scan stopped by user")
             if time.time() > deadline:
                 proc.kill()
                 break
@@ -162,6 +172,7 @@ class NetworkScanner:
                             severity=sev,
                             description=f"{info.get('product','')} {info.get('version','')} on port {port}/{proto} is vulnerable to {cve['id']}.",
                             evidence=cve["raw"], cve=cve["id"], cvss=cve["cvss"],
+                            cvss_vector=cve.get("vector"),
                             target=host, port=port, service=info.get("name"),
                             remediation=self._remediation_for(cve["id"]),
                         ).to_dict())
@@ -194,8 +205,21 @@ class NetworkScanner:
                         score = float(m.group(2))
                     except ValueError:
                         continue
+                    # Capture the full CVSS v3.x vector string when present
+                    vector = None
+                    vm = re.search(r"(CVSS:3\.\d/[A-Za-z0-9/:._-]+)", line)
+                    if vm:
+                        vector = vm.group(1)
+                        try:
+                            from scoring import cvss_v31_base_score
+                            vscore = cvss_v31_base_score(vector)
+                            if vscore is not None:
+                                score = vscore
+                        except Exception:
+                            pass
                     cves.append({"id": cid, "cvss": score,
                                  "severity": self._score_to_severity(score),
+                                 "vector": vector,
                                  "raw": line.strip()})
         return cves
 

@@ -19,6 +19,9 @@ class Finding:
     port: Optional[int] = None
     service: Optional[str] = None
     remediation: str = ""
+    cvss_vector: Optional[str] = None
+    remediation_steps: Optional[list] = None
+    remediation_commands: Optional[dict] = None
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
 
     def to_dict(self) -> Dict:
