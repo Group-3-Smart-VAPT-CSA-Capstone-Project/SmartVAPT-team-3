@@ -143,7 +143,7 @@ class NetworkScanner:
     def _parse(self) -> Dict[str, Any]:
         results = {"target": self.target, "hosts": [], "os_matches": [], "findings": [],
                    "summary": {"open_ports": 0, "total_cves": 0, "critical": 0,
-                               "high": 0, "medium": 0, "low": 0}}
+                               "high": 0, "medium": 0, "low": 0, "info": 0}}
         finding_idx = 0
         for host in self.nm.all_hosts():
             os_matches = []
