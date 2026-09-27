@@ -148,9 +148,17 @@ if run:
                     }))
                 except Exception as fe:
                     st.warning(f"Skipped malformed finding: {fe}")
-        except ScanStopped:
-            scan_stopped = True
-            results["network"] = {"stopped": True}
+        except (ScanStopped, RuntimeError) as e:
+            # ScanStopped -> user stop via progress callback;
+            # RuntimeError("Scan stopped by user") -> raised by the scanner
+            # when it polls the stop flag. Any other RuntimeError is reported
+            # as a genuine error below.
+            if isinstance(e, ScanStopped) or "stopped" in str(e).lower():
+                scan_stopped = True
+                results["network"] = {"stopped": True}
+            else:
+                results["network"] = {"error": str(e)}
+        except Exception as e:
             results["network"] = {"error": str(e)}
     else:
         results["network"] = {}
@@ -184,9 +192,13 @@ if run:
                         }))
                     except Exception as fe:
                         st.warning(f"Skipped malformed finding: {fe}")
-        except ScanStopped:
-            scan_stopped = True
-            results["web"] = {"stopped": True}
+        except (ScanStopped, RuntimeError) as e:
+            if isinstance(e, ScanStopped) or "stopped" in str(e).lower():
+                scan_stopped = True
+                results["web"] = {"stopped": True}
+            else:
+                results["web"] = {"error": str(e)}
+        except Exception as e:
             results["web"] = {"error": str(e)}
     else:
         results["web"] = {}
@@ -239,9 +251,13 @@ if run:
                     st.warning(f"Skipped malformed finding: {fe}")
             if not nuc_result.get("available"):
                 st.info(f"Nuclei skipped — {nuc_result.get('error','unavailable')}")
-        except ScanStopped:
-            scan_stopped = True
-            results["nuclei"] = {"stopped": True}
+        except (ScanStopped, RuntimeError) as e:
+            if isinstance(e, ScanStopped) or "stopped" in str(e).lower():
+                scan_stopped = True
+                results["nuclei"] = {"stopped": True}
+            else:
+                results["nuclei"] = {"error": str(e)}
+        except Exception as e:
             results["nuclei"] = {"error": str(e)}
     else:
         results["nuclei"] = {}
@@ -267,9 +283,13 @@ if run:
                     }))
                 except Exception as fe:
                     st.warning(f"Skipped malformed finding: {fe}")
-        except ScanStopped:
-            scan_stopped = True
-            results["subdomains"] = {"stopped": True}
+        except (ScanStopped, RuntimeError) as e:
+            if isinstance(e, ScanStopped) or "stopped" in str(e).lower():
+                scan_stopped = True
+                results["subdomains"] = {"stopped": True}
+            else:
+                results["subdomains"] = {"error": str(e)}
+        except Exception as e:
             results["subdomains"] = {"error": str(e)}
     else:
         results["subdomains"] = {}
@@ -292,9 +312,13 @@ if run:
                     }))
                 except Exception as fe:
                     st.warning(f"Skipped malformed finding: {fe}")
-        except ScanStopped:
-            scan_stopped = True
-            results["api"] = {"stopped": True}
+        except (ScanStopped, RuntimeError) as e:
+            if isinstance(e, ScanStopped) or "stopped" in str(e).lower():
+                scan_stopped = True
+                results["api"] = {"stopped": True}
+            else:
+                results["api"] = {"error": str(e)}
+        except Exception as e:
             results["api"] = {"error": str(e)}
     else:
         results["api"] = {}
