@@ -13,7 +13,7 @@ Scanning networks and applications you do not own or have **written permission**
 - Targets with explicit written authorization (e.g., a signed scope document)
 - Public test targets such as `scanme.nmap.org` or DVWA-style labs
 
-The developers accept no liability for misuse.
+The developers accept no liability for misuse and criminal proceedings may be initiated against perpetrators in various jurisdictions.
 
 ---
 
