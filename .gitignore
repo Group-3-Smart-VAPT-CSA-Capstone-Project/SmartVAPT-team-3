@@ -1,13 +1,2 @@
-# Compiled and build artifacts
-__pycache__/
-*.pyc
-
 # Logs
-scan_run.log
-scan_run2.log
 *.log
-
-# Generated Reports and Evidence
-SmartVAPT_*.pdf
-results_*.json
-evidence/

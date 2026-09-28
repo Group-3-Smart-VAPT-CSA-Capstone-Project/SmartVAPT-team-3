@@ -4,7 +4,13 @@ set -e
 echo "[*] Installing Kali dependencies..."
 sudo apt update
 sudo apt install -y python3-pip python3-venv python3-dev \
-    nmap gobuster curl dnsutils dirb wordlists build-essential
+    nmap gobuster curl dnsutils dirb build-essential
+# 'wordlists' is a Kali-specific metapackage; install it only if available
+if apt-cache show wordlists >/dev/null 2>&1; then
+    sudo apt install -y wordlists || echo "[!] Could not install wordlists (optional)"
+else
+    echo "[!] 'wordlists' package not available on this distro (optional, Kali-only)"
+fi
 
 echo "[*] Creating virtual environment..."
 python3 -m venv venv
