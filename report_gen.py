@@ -50,11 +50,21 @@ class PDFReport(FPDF):
                   align="C")
 
 
+def _clean_text(text) -> str:
+    """Strip characters DejaVu cannot render (tabs, control chars) so the PDF
+    build emits no 'missing glyph' warnings."""
+    s = str(text)
+    s = s.replace("\t", "  ")
+    # drop other C0/C1 control characters (keep newline/carriage return)
+    s = "".join(ch for ch in s if ch in ("\n", "\r") or ord(ch) >= 32)
+    return s
+
+
 def _safe_multi(pdf, text, line_h=5, size=10, font="DejaVu", style=""):
     """multi_cell with cursor reset — prevents 'not enough horizontal space'."""
     pdf.set_font(font, style, size)
     pdf.set_x(pdf.l_margin)
-    pdf.multi_cell(0, line_h, str(text))
+    pdf.multi_cell(0, line_h, _clean_text(text))
     pdf.set_x(pdf.l_margin)
 
 
@@ -113,8 +123,8 @@ def generate_report(scan_data: dict, ai_result: dict,
         pdf.set_text_color(*SEVERITY_COLORS.get(str(f.get("severity", "")).lower(),
                                                 (0, 0, 0)))
         pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(0, 6, f"{i}. {f.get('title', 'Finding')}  "
-                             f"[{f.get('severity', 'N/A')}]")
+        pdf.multi_cell(0, 6, _clean_text(f"{i}. {f.get('title', 'Finding')}  "
+                                         f"[{f.get('severity', 'N/A')}]"))
         pdf.set_text_color(30, 30, 30)
         _safe_multi(pdf, f"Business Impact: {f.get('business_impact', 'N/A')}",
                     line_h=5, size=10)
@@ -137,8 +147,8 @@ def generate_report(scan_data: dict, ai_result: dict,
         pdf.set_font("DejaVu", "B", 11)
         pdf.set_text_color(30, 30, 30)
         pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(0, 6, f"{i}. {t.get('finding', 'Finding')}  "
-                             f"({t.get('owasp', 'N/A')})")
+        pdf.multi_cell(0, 6, _clean_text(f"{i}. {t.get('finding', 'Finding')}  "
+                                         f"({t.get('owasp', 'N/A')})"))
         for step in t.get("steps", []):
             _safe_multi(pdf, f"  - {step}", line_h=5, size=10)
         if t.get("commands"):
@@ -175,7 +185,7 @@ def _render_appendix(pdf, scan_data: dict):
         pdf.set_font(font, "", size)
         pdf.set_text_color(30, 30, 30)
         pdf.set_x(pdf.l_margin)
-        pdf.multi_cell(0, 5, str(text))
+        pdf.multi_cell(0, 5, _clean_text(text))
         pdf.set_x(pdf.l_margin)
 
     def kv(key, value):
@@ -186,7 +196,7 @@ def _render_appendix(pdf, scan_data: dict):
         pdf.set_font("DejaVu", "", 10)
         pdf.set_text_color(30, 30, 30)
         pdf.set_x(pdf.l_margin + 45)
-        pdf.multi_cell(0, 6, str(value))
+        pdf.multi_cell(0, 6, _clean_text(value))
         pdf.set_x(pdf.l_margin)
 
     h2("A. Target Information")
@@ -350,17 +360,17 @@ def _render_appendix(pdf, scan_data: dict):
             pdf.set_text_color(*SEVERITY_COLORS.get(sev, (0, 0, 0)))
             pdf.set_x(pdf.l_margin)
             pdf.multi_cell(0, 5,
-                           f"{i}. [{str(f.get('severity','?')).upper()}] "
-                           f"{f.get('title','')}")
+                           _clean_text(f"{i}. [{str(f.get('severity','?')).upper()}] "
+                                       f"{f.get('title','')}"))
             pdf.set_text_color(30, 30, 30)
             pdf.set_font("DejaVu", "", 9)
             pdf.set_x(pdf.l_margin)
-            pdf.multi_cell(0, 4, f"    Target: {f.get('target','')}")
+            pdf.multi_cell(0, 4, _clean_text(f"    Target: {f.get('target','')}"))
             pdf.set_x(pdf.l_margin)
-            pdf.multi_cell(0, 4, f"    Evidence: {str(f.get('evidence',''))[:200]}")
+            pdf.multi_cell(0, 4, _clean_text(f"    Evidence: {str(f.get('evidence',''))[:200]}"))
             steps = f.get("remediation_steps") or []
             if steps:
                 pdf.set_x(pdf.l_margin)
                 pdf.multi_cell(0, 4,
-                               f"    Remediation: {'; '.join(steps)[:240]}")
+                               _clean_text(f"    Remediation: {'; '.join(steps)[:240]}"))
             pdf.ln(1)
