@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional, Dict
-from datetime import datetime
+from datetime import datetime, timezone
 
 SEVERITY_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
 
@@ -22,7 +22,7 @@ class Finding:
     cvss_vector: Optional[str] = None
     remediation_steps: Optional[list] = None
     remediation_commands: Optional[dict] = None
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict:
         return asdict(self)
