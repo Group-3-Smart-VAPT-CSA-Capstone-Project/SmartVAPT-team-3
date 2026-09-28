@@ -196,6 +196,96 @@ def playbook_for(title: str, description: str = "") -> Dict:
             "commands": {}}
 
 
+# ----------------------------------------------------------------------
+# Exploitation / verification guidance (offline, deterministic).
+# Ethical-use note: these are safe VERIFICATION steps a tester may run
+# inside the signed scope of a penetration test — not weaponised exploits.
+# ----------------------------------------------------------------------
+_EXPLOIT_GUIDES: Dict[str, Dict] = {
+    "missing_header": {
+        "difficulty": "Informational",
+        "attack_paths": ["Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
+                         "MIME-confusion scripting (missing X-Content-Type-Options)",
+                         "SSL-stripping (missing HSTS)"],
+        "verification": [
+            "curl -skI <url> | grep -iE 'strict-transport|content-security|x-frame|x-content-type'",
+            "Open the page inside an <iframe> on a test page to confirm framing is allowed.",
+        ],
+        "tools": ["curl", "browser dev-tools", "nuclei (-t http/headers/)"],
+    },
+    "sensitive_path": {
+        "difficulty": "Easy",
+        "attack_paths": ["Credential theft from .env / wp-config.bak / id_rsa",
+                         "Source disclosure via exposed .git directory",
+                         "Database dump download (.sql/.zip backups)"],
+        "verification": [
+            "curl -sk <url>/<path> | head -c 400   # confirm content is real, then stop",
+            "git clone <url>/.git /tmp/poc && git -C /tmp/poc log --oneline | head",
+        ],
+        "tools": ["gobuster dir", "curl", "git-dumper", "nuclei"],
+    },
+    "tls": {
+        "difficulty": "Moderate",
+        "attack_paths": ["Downgrade to weak cipher (SWEET32/BEAST class issues)",
+                         "Interception when certificate is invalid/expired"],
+        "verification": [
+            "openssl s_client -connect <host>:<port> -tls1_1   # should FAIL if hardened",
+            "nmap --script ssl-enum-ciphers -p <port> <host>",
+        ],
+        "tools": ["openssl s_client", "testssl.sh", "sslyze"],
+    },
+    "email_security": {
+        "difficulty": "Easy",
+        "attack_paths": ["Domain spoofing for phishing (no SPF/DMARC)",
+                         "BEC campaigns using look-alike sender"],
+        "verification": [
+            "dig +short TXT <domain>            # expect v=spf1 ...",
+            "dig +short TXT _dmarc.<domain>     # expect v=DMARC1; p=...",
+            "Send a test email from an unauthorized host and observe lack of rejection.",
+        ],
+        "tools": ["dig", "spfchecker", "dmarcian validator"],
+    },
+    "cve": {
+        "difficulty": "Varies by CVE",
+        "attack_paths": ["Direct exploitation of the vulnerable service version",
+                         "Pivoting from the exposed service into internal networks"],
+        "verification": [
+            "Check the advertised version against the CVE advisory range.",
+            "Run the matching Nuclei template in non-intrusive mode:",
+            "nuclei -u <service-url> -id <cve-id-lowercase> -severity critical,high",
+            "Metasploit auxiliary/check modules only where the RoE explicitly allows.",
+        ],
+        "tools": ["nuclei", "nmap NSE (vulners/http-* scripts)", "metasploit (authorized use)"],
+    },
+    "subdomain_takeover": {
+        "difficulty": "Easy",
+        "attack_paths": ["Claim the orphaned resource and serve content for the domain",
+                         "Session/token theft via cookies scoped to the parent domain"],
+        "verification": [
+            "dig +short CNAME <sub>.<domain>    # dangling pointer confirms risk",
+            "Attempt provider claim flow ONLY as agreed in the rules of engagement.",
+        ],
+        "tools": ["dnsrecon", "nuclei (takeover templates)", "subjack"],
+    },
+    "default": {
+        "difficulty": "Assessment required",
+        "attack_paths": ["Manual review of evidence to determine reachable attack path."],
+        "verification": ["Reproduce the finding with curl/nmap and capture before/after evidence."],
+        "tools": ["curl", "nmap", "burpsuite"],
+    },
+}
+
+
+def exploit_guide_for(title: str, description: str = "") -> Dict:
+    """Return exploitation/verification guidance keyed off the same playbook
+    matcher used for remediation."""
+    text = f"{title} {description}".lower()
+    for keywords, name in _KEYWORD_MAP:
+        if any(k in text for k in keywords):
+            return dict(_EXPLOIT_GUIDES.get(name, _EXPLOIT_GUIDES["default"]))
+    return dict(_EXPLOIT_GUIDES["default"])
+
+
 def enrich_findings(findings: List[dict]) -> List[dict]:
     """Attach cvss_score (if vector available), normalized severity and a
     remediation playbook to each finding dict. Mutates and returns the list."""
@@ -216,4 +306,8 @@ def enrich_findings(findings: List[dict]) -> List[dict]:
             f["remediation_commands"] = pb["commands"]
             if pb["owasp"] and not f.get("owasp"):
                 f["owasp"] = pb["owasp"]
+        # Ethical-use note: these are safe VERIFICATION steps for use inside
+        # the signed scope of a penetration test — not weaponised exploits.
+        f["exploitation"] = exploit_guide_for(f.get("title", ""),
+                                              f.get("description", ""))
     return findings

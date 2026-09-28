@@ -1,2 +1,17 @@
+# Python compiled files and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
 # Logs
 *.log
+
+# Generated Reports and Evidence (Scan outputs)
+evidence/
+results_*.json
+SmartVAPT_*.pdf

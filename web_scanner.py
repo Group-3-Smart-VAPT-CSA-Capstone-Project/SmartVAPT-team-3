@@ -1,4 +1,4 @@
-import subprocess, re, ssl, socket, requests, dns.resolver, os
+import subprocess, re, ssl, socket, requests, dns.resolver, os, shutil
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 from typing import Dict, List, Any
@@ -59,10 +59,53 @@ class WebScanner:
         self.evidence = evidence
         self.auth_headers = dict(auth_headers or {})
         self._finding_idx = 0
+        # Port/service of the HTTP endpoint this scanner is pointed at.
+        # Defaults to the scheme's well-known port; callers can override via
+        # set_target(..., port=..., service=...) using nmap -sV results so
+        # every web finding carries accurate port/service metadata.
+        p = urlparse(self.target)
+        self.port = p.port or (443 if p.scheme == "https" else 80)
+        self.service = "https" if p.scheme == "https" else "http"
+
+    def set_target(self, url: str, port=None, service=None):
+        """Re-point the scanner at a different URL (e.g. the HTTP port that
+        nmap -sV actually discovered instead of the assumed default)."""
+        if not url.startswith(("http://", "https://")):
+            url = "http://" + url
+        self.target = url.rstrip("/")
+        p = urlparse(self.target)
+        self.port = port or p.port or (443 if p.scheme == "https" else 80)
+        self.service = service or ("https" if p.scheme == "https" else "http")
 
     def _next_id(self) -> str:
         self._finding_idx += 1
         return f"WEB-{self._finding_idx:03d}"
+
+    def _mk_finding(self, **kw) -> Dict[str, Any]:
+        """Build a Finding dict with accurate port/service metadata taken
+        from the HTTP endpoint this scanner is pointed at (nmap -sV verified)."""
+        kw.setdefault("port", self.port)
+        kw.setdefault("service", self.service)
+        return Finding(**kw).to_dict()
+
+    def tls_available(self) -> bool:
+        """True if the target host actually serves TLS on the HTTPS port.
+
+        Used to avoid reporting 'No HTTP -> HTTPS redirect' when no HTTPS
+        service exists to redirect to (that would be an inaccurate finding).
+        """
+        parsed = urlparse(self.target)
+        host = parsed.hostname
+        port = 443
+        try:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with socket.create_connection((host, port), timeout=self.timeout) as s:
+                with ctx.wrap_socket(s, server_hostname=host):
+                    return True
+        except Exception:
+            return False
 
     def check_headers(self) -> Dict[str, Any]:
         result = {"url": self.target, "missing": [], "present": [],
@@ -83,7 +126,7 @@ class WebScanner:
                 result["present"].append({"header": header, "value": h_lower[header.lower()]})
             else:
                 result["missing"].append(header)
-                result["findings"].append(Finding(
+                result["findings"].append(self._mk_finding(
                     id=self._next_id(), vector="web",
                     title=f"Missing security header: {header}",
                     severity="medium",
@@ -92,7 +135,7 @@ class WebScanner:
                     owasp="A05:2021 - Security Misconfiguration",
                     target=self.target,
                     remediation=f"Add '{header}' to web server configuration.",
-                ).to_dict())
+                ))
         return result
 
     def detect_technologies(self) -> Dict[str, Any]:
@@ -117,7 +160,20 @@ class WebScanner:
         return {"technologies": tech, "count": len(tech)}
 
     def gobuster_scan(self, wordlist: str = "/usr/share/wordlists/dirb/common.txt",
-                      progress_cb=None, stop_flag=None) -> Dict[str, Any]:
+                      progress_cb=None, stop_flag=None,
+                      http_services: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Directory brute-force against the URL this scanner targets.
+
+        *http_services* (optional) is the list of HTTP endpoints discovered
+        by nmap -sV (NetworkScanner.find_http_services). When provided, the
+        first entry's URL is used as the gobuster base — so if HTTP actually
+        runs on 8080/443/etc. instead of port 80, gobuster still fires.
+        If the gobuster binary is unavailable, a lightweight Python fuzzer
+        over the same wordlist is used as fallback.
+        """
+        # Re-point at the nmap-confirmed HTTP endpoint before scanning.
+        if http_services:
+            self.set_target(http_services[0].get("url") or self.target)
         result = {"target": self.target, "found": [], "findings": [], "error": None}
         if not os.path.exists(wordlist):
             result["error"] = f"Wordlist not found: {wordlist}"
@@ -155,7 +211,13 @@ class WebScanner:
             else:
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
                 raw = proc.stdout
-        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        except FileNotFoundError:
+            # gobuster binary missing -> pure-python fallback fuzzer so the
+            # web vector still returns results on the nmap-detected port.
+            raw = self._python_dir_fuzz(wordlist, progress_cb, stop_flag)
+            if raw is None:
+                result["error"] = "Stopped by user"
+        except subprocess.TimeoutExpired as e:
             result["error"] = str(e)
             return result
         if self.evidence:
@@ -169,7 +231,7 @@ class WebScanner:
                 result["found"].append({"path": path, "status": status, "size": size})
                 if any(s in path.lower() for s in ["admin", "backup", ".git", ".env",
                                                     "config", "phpmyadmin", "wp-admin"]):
-                    result["findings"].append(Finding(
+                    result["findings"].append(self._mk_finding(
                         id=self._next_id(), vector="web",
                         title=f"Sensitive path exposed: {path}",
                         severity="high" if status == 200 else "medium",
@@ -178,8 +240,57 @@ class WebScanner:
                         owasp="A05:2021 - Security Misconfiguration",
                         target=self.target,
                         remediation=f"Restrict access to {path} or remove it.",
-                    ).to_dict())
+                    ))
         return result
+
+    def _python_dir_fuzz(self, wordlist: str, progress_cb=None,
+                         stop_flag=None):
+        """Minimal gobuster-dir replacement using requests + threads.
+
+        Emits gobuster-style lines ("/path  (Status: 200) [Size: 1234]") so
+        the existing parser handles both paths uniformly. Returns None when
+        the user requested a stop."""
+        import threading
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        try:
+            with open(wordlist, "r", errors="replace") as fh:
+                words = [w.strip().lstrip("/") for w in fh if w.strip()]
+        except OSError:
+            return ""
+        # Bound work: keep parity with gobuster's common.txt (~4600 entries)
+        words = words[:4600]
+        found_lines: List[str] = []
+        lock = threading.Lock()
+
+        def probe(word: str):
+            url = f"{self.target}/{word}"
+            try:
+                resp = requests.get(url, timeout=self.timeout,
+                                    allow_redirects=False,
+                                    headers=self.auth_headers or None)
+            except requests.RequestException:
+                return None
+            status = resp.status_code
+            # gobuster-dir default behaviour: report 2xx/3xx/401/403/405
+            if status in (200, 201, 202, 204, 301, 302, 303, 307, 308,
+                          401, 403, 405):
+                size = len(resp.content)
+                return f"/{word}  (Status: {status}) [Size: {size}]"
+            return None
+
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = {pool.submit(probe, w): w for w in words}
+            for fut in as_completed(futures):
+                if stop_flag and stop_flag.get("stop"):
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    return None
+                line = fut.result()
+                if line:
+                    with lock:
+                        found_lines.append(line)
+                    if progress_cb:
+                        progress_cb(line)
+        return "\n".join(found_lines)
 
     def analyze_tls(self) -> Dict[str, Any]:
         parsed = urlparse(self.target)
@@ -223,13 +334,13 @@ class WebScanner:
         if self.evidence:
             self.evidence.save_json("tls_info", result["cert"])
         for issue in result["issues"]:
-            result["findings"].append(Finding(
+            result["findings"].append(self._mk_finding(
                 id=self._next_id(), vector="web",
                 title=f"TLS issue: {issue}", severity="medium",
                 description=issue, evidence=str(result["cert"]),
                 target=self.target,
                 remediation="Disable TLS 1.0/1.1 and enable TLS 1.2+.",
-            ).to_dict())
+            ))
         return result
 
     def fetch_robots_sitemap(self) -> Dict[str, Any]:
@@ -258,7 +369,7 @@ class WebScanner:
         except requests.RequestException:
             pass
         if result["disallowed"]:
-            result["findings"].append(Finding(
+            result["findings"].append(self._mk_finding(
                 id=self._next_id(), vector="web",
                 title=f"robots.txt discloses {len(result['disallowed'])} disallowed paths",
                 severity="info",
@@ -266,7 +377,7 @@ class WebScanner:
                 evidence="\n".join(result["disallowed"][:20]),
                 target=self.target,
                 remediation="Do not list sensitive paths in robots.txt.",
-            ).to_dict())
+            ))
         return result
 
     def probe_sensitive_paths(self) -> Dict[str, Any]:
@@ -279,7 +390,7 @@ class WebScanner:
                 if r.status_code in (200, 206):
                     result["found"].append({"path": path, "status": r.status_code,
                                             "size": len(r.content)})
-                    result["findings"].append(Finding(
+                    result["findings"].append(self._mk_finding(
                         id=self._next_id(), vector="web",
                         title=f"Sensitive file publicly accessible: /{path}",
                         severity="critical",
@@ -288,7 +399,7 @@ class WebScanner:
                         owasp="A01:2021 - Broken Access Control",
                         target=self.target,
                         remediation=f"Block /{path} at web server and rotate leaked secrets.",
-                    ).to_dict())
+                    ))
             except requests.RequestException:
                 continue
         return result
@@ -304,15 +415,24 @@ class WebScanner:
             result["chain"].append({"status": r.status_code, "url": r.url, "location": None})
             if self.target.startswith("http://") and not any(
                     h["url"].startswith("https://") for h in r.history):
-                result["findings"].append(Finding(
-                    id=self._next_id(), vector="web",
-                    title="No HTTP -> HTTPS redirect", severity="high",
-                    description="Plain HTTP is served without redirecting to HTTPS.",
-                    evidence=f"Final URL: {r.url}",
-                    owasp="A02:2021 - Cryptographic Failures",
-                    target=self.target,
-                    remediation="Configure 301 redirect from HTTP to HTTPS.",
-                ).to_dict())
+                # Accuracy check: only report a missing redirect when the host
+                # actually serves TLS on 443. If HTTPS is unavailable, flagging
+                # 'no redirect' would be misleading — note it instead.
+                if self.tls_available():
+                    result["findings"].append(self._mk_finding(
+                        id=self._next_id(), vector="web",
+                        title="No HTTP -> HTTPS redirect", severity="high",
+                        description="Plain HTTP is served without redirecting to HTTPS.",
+                        evidence=f"Final URL: {r.url}",
+                        owasp="A02:2021 - Cryptographic Failures",
+                        target=self.target,
+                        remediation="Configure 301 redirect from HTTP to HTTPS.",
+                    ))
+                else:
+                    result["tls_unavailable"] = True
+                    result["note"] = ("Host does not serve TLS on port 443; "
+                                      "HTTPS-redirect finding suppressed as "
+                                      "not applicable.")
             if self.evidence:
                 self.evidence.save_json("redirect_chain", result["chain"])
         except requests.RequestException as e:
@@ -337,7 +457,7 @@ class DNSScanner:
                 owasp="A07:2021 - Identification and Authentication Failures",
                 target=self.domain,
                 remediation="Publish an SPF record listing authorized senders.",
-            ).to_dict())
+            ))
         if not dmarc["present"]:
             findings.append(Finding(
                 id="DNS-002", vector="dns",
@@ -347,7 +467,7 @@ class DNSScanner:
                 owasp="A07:2021 - Identification and Authentication Failures",
                 target=self.domain,
                 remediation="Publish DMARC with p=none first, then quarantine/reject.",
-            ).to_dict())
+            ))
         elif dmarc.get("policy") == "none":
             findings.append(Finding(
                 id="DNS-003", vector="dns",
@@ -356,7 +476,7 @@ class DNSScanner:
                 evidence=dmarc.get("record", ""),
                 target=self.domain,
                 remediation="Move DMARC policy to p=quarantine, then p=reject.",
-            ).to_dict())
+            ))
         result = {"domain": self.domain, "spf": spf, "dmarc": dmarc, "findings": findings}
         if self.evidence:
             self.evidence.save_json("dns_records", result)

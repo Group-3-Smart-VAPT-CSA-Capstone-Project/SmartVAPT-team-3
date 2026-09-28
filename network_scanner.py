@@ -1,12 +1,68 @@
 import nmap
 import os
 import re
+import shlex
 import subprocess
 import tempfile
 import time
 from typing import List, Dict, Any, Callable, Optional
 from findings import Finding
 from evidence import EvidenceStore
+from portsets import PORT_SETS, normalize_ports, port_arg_tokens
+
+
+# Service names / products that indicate an HTTP-speaking port (nmap -sV).
+HTTP_SERVICE_TOKENS = ("http", "https", "http-proxy", "https-proxy", "ssl/http",
+                       "upnp", "jetty", "tomcat", "jboss", "thrift-http",
+                       "h2", "glighty", "nginx", "apache", "iis", "websocket")
+
+
+def is_http_port(port_info: Dict[str, Any]) -> bool:
+    """True when an nmap service dict looks like HTTP(S)."""
+    name = str(port_info.get("name") or "").lower()
+    product = str(port_info.get("product") or "").lower()
+    tunnel = str(port_info.get("tunnel") or "").lower()
+    if tunnel == "ssl" and "http" in name:
+        return True
+    for token in HTTP_SERVICE_TOKENS:
+        if name == token or token in name or token in product:
+            return True
+    return False
+
+
+def find_http_services(net_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Extract HTTP/HTTPS services from a parsed NetworkScanner result.
+
+    Relies on version detection (-sV) having populated the service name.
+    Returns [{host, port, protocol, service, product, version, tunnel, url}, ...]
+    """
+    out = []
+    for host in net_result.get("hosts", []) or []:
+        ip = host.get("ip") or host.get("hostname") or ""
+        for p in host.get("ports", []) or []:
+            if not is_http_port(p):
+                continue
+            port = p.get("port")
+            ssl_wrap = str(p.get("tunnel") or "").lower() == "ssl" or \
+                str(p.get("service") or "").lower() in ("https", "ssl/http", "https-proxy")
+            scheme = "https" if ssl_wrap else "http"
+            default_port = 443 if ssl_wrap else 80
+            try:
+                port_i = int(port)
+            except (TypeError, ValueError):
+                port_i = None
+            hostpart = host.get("hostname") or ip or "localhost"
+            url = f"{scheme}://{hostpart}"
+            if port_i is not None and port_i != default_port:
+                url += f":{port_i}"
+            out.append({"host": host.get("ip"), "hostname": host.get("hostname"),
+                        "port": port_i if port_i is not None else port,
+                        "protocol": p.get("protocol", "tcp"),
+                        "service": p.get("service"), "product": p.get("product"),
+                        "version": p.get("version"),
+                        "tunnel": p.get("tunnel"), "url": url,
+                        "ssl": ssl_wrap})
+    return out
 
 
 class _ReportOnlyScanner:
@@ -51,26 +107,34 @@ class NetworkScanner:
             self._nm = nmap.PortScanner()
         return self._nm
 
-    def scan(self, ports: str = "1-1000", os_detect: bool = True,
+    def scan(self, ports: str = "top1000", os_detect: bool = True,
              arguments: str = None,
              progress_cb: Optional[Callable[[str], None]] = None,
              stop_flag: Optional[Dict[str, bool]] = None) -> Dict[str, Any]:
         """Run an nmap scan.
 
+        *ports* accepts a Nmap top-ports preset ("top100", "top1000",
+        "top10000") or an explicit range/list ("80,443,8000-9000").
+        Version detection (-sV) is always enabled so downstream consumers
+        (e.g. gobuster) can discover which ports actually speak HTTP.
+
         If *progress_cb* is supplied, nmap is executed as a live subprocess
         and its per-probe status lines are streamed to the callback as they
         arrive (real-time output). Without a callback, behaviour is unchanged.
         """
+        norm_ports = normalize_ports(ports) or "top1000"
         if arguments is None:
             arguments = "-sV -sC --script vulners"
             if os_detect:
                 arguments += " -O --osscan-guess"
 
         if progress_cb is not None:
-            xml_path = self._scan_streaming(ports, arguments, progress_cb, stop_flag)
+            xml_path = self._scan_streaming(norm_ports, arguments,
+                                            progress_cb, stop_flag)
             if xml_path is None:
                 # streaming path failed before producing results; fall back
-                self.nm.scan(hosts=self.target, ports=ports, arguments=arguments)
+                self.nm.scan(hosts=self.target, ports=norm_ports,
+                             arguments=arguments)
             else:
                 with open(xml_path, "r", errors="replace") as fh:
                     raw = fh.read()
@@ -79,7 +143,8 @@ class NetworkScanner:
                 self._nm = _ReportOnlyScanner(report, raw)
         else:
             try:
-                self.nm.scan(hosts=self.target, ports=ports, arguments=arguments)
+                self.nm.scan(hosts=self.target, ports=norm_ports,
+                             arguments=arguments)
             except nmap.PortScannerError as e:
                 return {"error": str(e), "target": self.target}
 
@@ -88,7 +153,15 @@ class NetworkScanner:
                 self.evidence.save_raw("nmap_output", self._last_output())
             except Exception:
                 pass
-        return self._parse()
+        parsed = self._parse()
+        parsed["ports_requested"] = norm_ports
+        # Surface where HTTP is actually running (from -sV service detection)
+        # so web fingerprinting / gobuster / nuclei target the right port.
+        http_services = find_http_services(parsed)
+        parsed["http_services"] = http_services
+        parsed["primary_http_url"] = (http_services[0]["url"]
+                                      if http_services else None)
+        return parsed
 
     def _last_output(self) -> str:
         nm = self._nm
@@ -109,8 +182,11 @@ class NetworkScanner:
         """
         fd, xml_path = tempfile.mkstemp(suffix=".xml", prefix="smartvapt_")
         os.close(fd)
-        cmd = ["nmap"] + arguments.split() + ["-p", ports,
-                                              "-oX", xml_path, self.target]
+        cmd = ["nmap"] + arguments.split()
+        # Preset ("top1000") -> "--top-ports 1000"; literal range/list
+        # ("1-1000", "80,443") -> "-p <spec>" exactly as the user requested.
+        cmd += port_arg_tokens(ports)
+        cmd += ["-oX", xml_path, self.target]
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                     stderr=subprocess.PIPE, text=True,
