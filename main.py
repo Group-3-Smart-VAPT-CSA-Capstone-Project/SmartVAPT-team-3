@@ -27,13 +27,33 @@ with st.sidebar:
     scan_web = st.checkbox("Web App Audit (headers + dirs)", value=True)
     scan_dns = st.checkbox("DNS / Email Security (SPF + DMARC)", value=True)
     st.markdown("**Extended vectors**")
-    scan_nuclei = st.checkbox("Nuclei template scan", value=False,
-                              help="Requires the 'nuclei' binary; skipped gracefully if absent")
+    ports_mode = st.radio("Port selection",
+                          ["Nmap Top 1000 ports (recommended)",
+                           "Nmap Top 100 ports (quick)",
+                           "Ports 1-1000 (full low range)",
+                           "Custom range / list"],
+                          horizontal=False,
+                          help="Top-ports presets scan nmap's most common "
+                               "ports; 'Ports 1-1000' sweeps the whole "
+                               "1-1000 range (-p 1-1000); custom accepts "
+                               "e.g. 80,443,8000-9000")
+    if ports_mode.startswith("Nmap Top 1000"):
+        ports = "top1000"
+    elif ports_mode.startswith("Nmap Top 100 "):
+        ports = "top100"
+    elif ports_mode.startswith("Ports 1-1000"):
+        ports = "1-1000"
+    else:
+        ports = st.text_input("Custom port range", value="80,443,8080",
+                              placeholder="e.g. 80,443,3000-4000 or 1-1000",
+                              key="custom_ports")
+    scan_nuclei = st.checkbox("Nuclei template scan", value=True,
+                              help="Requires the 'nuclei' binary; skipped "
+                                   "gracefully if absent. Enabled by default.")
     scan_sub = st.checkbox("Subdomain enum + takeover check", value=False,
                            help="crt.sh + DNS brute force; detects dangling CNAMEs (no takeover attempted)")
     scan_api = st.checkbox("API security checks", value=False,
                            help="Swagger/GraphQL/JWT/rate-limit smoke tests (OWASP API Top 10)")
-    ports = st.text_input("Port range", value="1-1000")
     nuclei_rl = st.slider("Nuclei rate limit (req/s)", 1, 50, 10,
                           help="Keep low to avoid overloading the target")
     baseline_mode = st.toggle("Baseline / diff mode", value=False,
@@ -139,6 +159,9 @@ if run:
             net_result = ns.scan(ports=ports, os_detect=False,
                                  progress_cb=run_cb, stop_flag=ctrl)
             results["network"] = net_result
+            # Record the exact port selection for the report ("top1000" or a
+            # literal range like "1-1000").
+            results["ports_requested"] = ports
             from findings import Finding
             for f in net_result.get("findings", []):
                 try:
@@ -166,21 +189,45 @@ if run:
     # ----------------------------------------------------------------
     # 2) WEB
     # ----------------------------------------------------------------
+    http_services = (results.get("network", {}) or {}).get("http_services") or []
+    if not http_services and scan_web:
+        # Network scan unavailable/failed -> probe common HTTP ports directly
+        # so gobuster still targets a confirmed HTTP port (nmap-equivalent).
+        from portsets import probe_http_ports
+        net_host = (target.replace("http://", "").replace("https://", "")
+                    .split("/")[0].split(":")[0])
+        http_services = probe_http_ports(net_host)
+        if http_services:
+            st.caption(f"HTTP discovered on port {http_services[0]['port']} "
+                       f"via direct probe ({http_services[0]['url']}).")
     if scan_web and not scan_stopped:
         progress.progress(45, text="Auditing web application...")
         try:
             ws = WebScanner(target, evidence=evidence, auth_headers=auth_headers)
+            # Follow nmap -sV: if HTTP was detected on a non-default port,
+            # re-point the whole web audit (headers/dirs/TLS/...) at it.
+            http_services = (results.get("network", {}) or {}).get("http_services") or []
+            from urllib.parse import urlparse as _up
+            if http_services:
+                det_url = http_services[0].get("url") or ""
+                # Always sync port/service metadata with nmap -sV observations
+                # so every web finding carries the accurate port/service.
+                ws.set_target(det_url,
+                              port=http_services[0].get("port"),
+                              service=http_services[0].get("service"))
             web_result = {
                 "headers": ws.check_headers(),
                 "technologies": ws.detect_technologies(),
                 "directories": ws.gobuster_scan(
-                    progress_cb=run_cb, stop_flag=ctrl),
+                    progress_cb=run_cb, stop_flag=ctrl,
+                    http_services=http_services),
                 "tls": ws.analyze_tls(),
                 "robots_sitemap": ws.fetch_robots_sitemap(),
                 "sensitive_paths": ws.probe_sensitive_paths(),
                 "redirects": ws.analyze_redirects(),
             }
             results["web"] = web_result
+            results["web_audited_url"] = ws.target
             from findings import Finding
             for key in ("headers", "directories", "tls",
                         "robots_sitemap", "sensitive_paths", "redirects"):
@@ -235,7 +282,9 @@ if run:
     if scan_nuclei and not scan_stopped:
         progress.progress(74, text="Running Nuclei template scan...")
         try:
-            nsc = NucleiScanner(target, evidence=evidence,
+            nuc_target = ((results.get("web") or {}).get("directories") or {}).get("target") \
+                or (results.get("network") or {}).get("primary_http_url") or target
+            nsc = NucleiScanner(nuc_target, evidence=evidence,
                                 rate_limit=nuclei_rl,
                                 auth_headers=auth_headers)
             nuc_result = nsc.scan(progress_cb=run_cb, stop_flag=ctrl)

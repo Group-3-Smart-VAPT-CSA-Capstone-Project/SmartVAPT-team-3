@@ -3,11 +3,45 @@ from datetime import datetime
 from config import REPORT_TITLE, REPORT_AUTHOR
 import os
 
+from portsets import describe_ports
+
 DEJAVU_DIR = "/usr/share/fonts/truetype/dejavu"
-DEJAVU_REG = os.path.join(DEJAVU_DIR, "DejaVuSans.ttf")
-DEJAVU_BOLD = os.path.join(DEJAVU_DIR, "DejaVuSans-Bold.ttf")
-DEJAVU_ITALIC = os.path.join(DEJAVU_DIR, "DejaVuSans-Oblique.ttf")
-DEJAVU_MONO = os.path.join(DEJAVU_DIR, "DejaVuSansMono.ttf")
+
+# Candidate paths per style, tried in order — first existing file wins.
+# Some minimal images ship DejaVu without the Oblique/Italic faces, so each
+# style falls back to whatever DejaVu variant is available.
+_FONT_CANDIDATES = {
+    "reg": [
+        os.path.join(DEJAVU_DIR, "DejaVuSans.ttf"),
+        os.path.join(DEJAVU_DIR, "DejaVuSerif.ttf"),
+        os.path.join(DEJAVU_DIR, "DejaVuSansMono.ttf"),
+    ],
+    "bold": [
+        os.path.join(DEJAVU_DIR, "DejaVuSans-Bold.ttf"),
+        os.path.join(DEJAVU_DIR, "DejaVuSans.ttf"),
+        os.path.join(DEJAVU_DIR, "DejaVuSerif-Bold.ttf"),
+        os.path.join(DEJAVU_DIR, "DejaVuSansMono-Bold.ttf"),
+    ],
+    "italic": [
+        os.path.join(DEJAVU_DIR, "DejaVuSans-Oblique.ttf"),
+        os.path.join(DEJAVU_DIR, "DejaVuSans.ttf"),
+        os.path.join(DEJAVU_DIR, "DejaVuSerif.ttf"),
+        os.path.join(DEJAVU_DIR, "DejaVuSansMono.ttf"),
+    ],
+    "mono": [
+        os.path.join(DEJAVU_DIR, "DejaVuSansMono.ttf"),
+        os.path.join(DEJAVU_DIR, "DejaVuSans.ttf"),
+        os.path.join(DEJAVU_DIR, "DejaVuSerif.ttf"),
+    ],
+}
+
+
+def _find_font(candidates):
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return None
+
 
 SEVERITY_COLORS = {
     "critical": (200, 0, 0),
@@ -18,11 +52,19 @@ SEVERITY_COLORS = {
 
 
 def _register_fonts(pdf):
-    pdf.add_font("DejaVu", "", DEJAVU_REG)
-    pdf.add_font("DejaVu", "B", DEJAVU_BOLD)
-    pdf.add_font("DejaVu", "I", DEJAVU_ITALIC)
-    pdf.add_font("DejaVu", "BI", DEJAVU_BOLD)
-    pdf.add_font("DejaVuMono", "", DEJAVU_MONO)
+    reg = _find_font(_FONT_CANDIDATES["reg"])
+    bold = _find_font(_FONT_CANDIDATES["bold"]) or reg
+    italic = _find_font(_FONT_CANDIDATES["italic"]) or reg
+    mono = _find_font(_FONT_CANDIDATES["mono"]) or reg
+    if not reg:
+        raise RuntimeError(
+            f"No DejaVu TrueType fonts found in {DEJAVU_DIR}; "
+            "install the 'fonts-dejavu-core' package.")
+    pdf.add_font("DejaVu", "", reg)
+    pdf.add_font("DejaVu", "B", bold)
+    pdf.add_font("DejaVu", "I", italic)
+    pdf.add_font("DejaVu", "BI", bold)
+    pdf.add_font("DejaVuMono", "", mono)
 
 
 class PDFReport(FPDF):
@@ -132,12 +174,21 @@ def generate_report(scan_data: dict, ai_result: dict,
                     line_h=5, size=10)
         pdf.ln(2)
 
-    # ---------- 3. Technical Remediation ----------
+    # ---------- 3. Pen-Test Details & Exploitation Options ----------
     pdf.add_page()
     pdf.set_font("DejaVu", "B", 14)
     pdf.set_text_color(0, 60, 120)
     pdf.set_x(pdf.l_margin)
-    pdf.cell(0, 10, "3. Technical Remediation", ln=True)
+    pdf.cell(0, 10, "3. Penetration-Test Details & Exploitation Options", ln=True)
+
+    _render_pentest_details(pdf, scan_data)
+
+    # ---------- 4. Technical Remediation ----------
+    pdf.add_page()
+    pdf.set_font("DejaVu", "B", 14)
+    pdf.set_text_color(0, 60, 120)
+    pdf.set_x(pdf.l_margin)
+    pdf.cell(0, 10, "4. Technical Remediation", ln=True)
 
     remediation = ai_result.get("technical_remediation", []) or []
     if not remediation:
@@ -158,17 +209,119 @@ def generate_report(scan_data: dict, ai_result: dict,
                             font="DejaVuMono")
         pdf.ln(3)
 
-    # ---------- 4. Appendix ----------
+    # ---------- 5. Appendix ----------
     pdf.add_page()
     pdf.set_font("DejaVu", "B", 14)
     pdf.set_text_color(0, 60, 120)
     pdf.set_x(pdf.l_margin)
-    pdf.cell(0, 10, "4. Appendix: Scan Details", ln=True)
+    pdf.cell(0, 10, "5. Appendix: Scan Details", ln=True)
     pdf.ln(2)
     _render_appendix(pdf, scan_data)
 
     pdf.output(output_path)
     return output_path
+
+
+def _render_pentest_details(pdf, scan_data: dict):
+    """Section 3: methodology/scope of the pen test plus, for every finding,
+    the exploitation/verification options a tester may exercise inside the
+    signed scope (safe checks — not weaponised exploits)."""
+
+    def body(text, size=10, font="DejaVu", style=""):
+        pdf.set_font(font, style, size)
+        pdf.set_text_color(30, 30, 30)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 5, _clean_text(text))
+        pdf.set_x(pdf.l_margin)
+
+    def sub(text):
+        pdf.ln(2)
+        pdf.set_font("DejaVu", "B", 12)
+        pdf.set_text_color(0, 60, 120)
+        pdf.set_x(pdf.l_margin)
+        pdf.cell(0, 7, text, ln=True)
+        pdf.set_text_color(30, 30, 30)
+        pdf.set_x(pdf.l_margin)
+
+    net = scan_data.get("network", {}) or {}
+    web = scan_data.get("web", {}) or {}
+    nuclei = scan_data.get("nuclei", {}) or {}
+
+    # ---- Methodology / scope ----
+    sub("3.1 Test Details & Methodology")
+    body(f"Target: {scan_data.get('target', 'N/A')}   "
+         f"Scan ID: {scan_data.get('scan_id', 'N/A')}   "
+         f"Date: {datetime.now():%Y-%m-%d %H:%M}")
+    ports_requested = (scan_data.get("ports_requested")
+                       or net.get("ports_requested") or "top1000")
+    body(f"Ports scanned: {describe_ports(ports_requested)} "
+         f"(selection: {ports_requested})")
+    body("Network: nmap with version detection (-sV), default scripts (-sC) "
+         "and the vulners NSE script; HTTP services were located via -sV and "
+         "directory brute-forcing (gobuster dir) was executed against the "
+         "detected HTTP port(s) rather than assuming port 80.")
+    audited_url = ((web.get("directories") or {}).get("target")
+                    or scan_data.get("web_audited_url")
+                    or (net.get("primary_http_url")) or "N/A")
+    body(f"Web audit base URL (nmap-confirmed): {audited_url}")
+    http_services = net.get("http_services") or []
+    if http_services:
+        body("HTTP service(s) detected by nmap -sV:")
+        for svc in http_services[:10]:
+            body(f"  - {svc.get('url')}  service={svc.get('service') or '?'} "
+                 f"{svc.get('product') or ''} {svc.get('version') or ''}".rstrip())
+    else:
+        body("No HTTP-speaking ports were detected by nmap -sV.")
+    if nuclei.get("available"):
+        sev_counts = {}
+        for m in nuclei.get("matched", []) or []:
+            s = str(m.get("severity", "info")).lower()
+            sev_counts[s] = sev_counts.get(s, 0) + 1
+        if nuclei.get("matched"):
+            detail = f", severity breakdown {sev_counts}" if sev_counts else ""
+        else:
+            detail = ""
+        body(f"Nuclei template scan (DEFAULT active web scanner): enabled, "
+             f"{len(nuclei.get('matched', []) or [])} match(es){detail}")
+    elif nuclei:
+        body(f"Nuclei (default template scanner): unavailable this run — "
+             f"{nuclei.get('error') or 'skipped'}. Install the 'nuclei' "
+             "binary to enable it.")
+    body("Rules of engagement: all steps above are non-destructive checks "
+         "performed within the authorized scope of this assessment.")
+
+    # ---- Exploitation options per finding ----
+    sub("3.2 Exploitation Options (authorized verification only)")
+    findings = [f for f in (scan_data.get("findings") or [])
+                if str(f.get("severity", "")).lower()
+                in ("critical", "high", "medium")]
+    if not findings:
+        body("No exploitable-severity findings recorded; nothing to verify.")
+        return
+    for i, f in enumerate(findings[:40], 1):
+        exp = f.get("exploitation") or {}
+        sev = str(f.get("severity", "?")).upper()
+        pdf.set_font("DejaVu", "B", 10)
+        pdf.set_text_color(*SEVERITY_COLORS.get(sev.lower(), (0, 0, 0)))
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(0, 5, _clean_text(f"{i}. [{sev}] {f.get('title','')}"))
+        pdf.set_text_color(30, 30, 30)
+        paths = exp.get("attack_paths") or []
+        if paths:
+            body(f"    Attack paths : {'; '.join(paths)[:300]}", size=9)
+        if exp.get("difficulty"):
+            body(f"    Difficulty   : {exp['difficulty']}", size=9)
+        verif = exp.get("verification") or []
+        for v in verif[:4]:
+            body(f"    Verify       : {v}", size=9, font="DejaVuMono")
+        tools = exp.get("tools") or []
+        if tools:
+            body(f"    Tools        : {', '.join(tools)}", size=9)
+        pdf.ln(1)
+    remaining = len(findings) - 40
+    if remaining > 0:
+        body(f"...and {remaining} more finding(s); see section 5 for the "
+             "full list.")
 
 
 def _render_appendix(pdf, scan_data: dict):
@@ -211,6 +364,7 @@ def _render_appendix(pdf, scan_data: dict):
     else:
         summary = net.get("summary", {}) or {}
         kv("Open Ports", summary.get("open_ports", 0))
+        kv("Ports Scanned", describe_ports(net.get("ports_requested") or "top1000"))
         kv("Total CVEs", summary.get("total_cves", 0))
         kv("Severity",
            f"Critical: {summary.get('critical', 0)}  |  "

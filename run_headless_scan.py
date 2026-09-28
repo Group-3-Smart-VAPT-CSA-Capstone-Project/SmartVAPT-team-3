@@ -33,12 +33,21 @@ def add_all(fs: FindingSet, items):
 def main():
     args = sys.argv[1:]
     target = args[0] if args else "scanme.nmap.org"
-    ports = "1-100"
-    opts = set(a.lower() for a in args[1:])
+    ports = "top1000"  # default: nmap Top 1000 ports (see portsets.py)
+    rest = []
+    i = 1
+    while i < len(args):
+        if args[i] == "--ports" and i + 1 < len(args):
+            ports = args[i + 1]
+            i += 2
+        else:
+            rest.append(args[i])
+            i += 1
+    opts = set(a.lower() for a in rest)
+    scan_nuclei = "no-nuclei" not in opts  # nuclei is ON by default
     scan_network = "no-network" not in opts
     scan_web = "no-web" not in opts
     scan_dns = "no-dns" not in opts
-    scan_nuclei = "nuclei" in opts
     scan_sub = "subdomains" in opts
     scan_api = "api" in opts
 
@@ -58,19 +67,47 @@ def main():
             ns = NetworkScanner(net_target, evidence=evidence)
             net_result = ns.scan(ports=ports, os_detect=False, progress_cb=log)
             results["network"] = net_result
+            # Record the exact port selection for the report ("top1000" or a
+            # literal range like "1-1000").
+            results["ports_requested"] = ports
             add_all(findings, net_result.get("findings"))
         except Exception as e:
             results["network"] = {"error": str(e)}
             print(f"[!] network error: {e}")
 
+    http_services = ((results.get("network") or {}).get("http_services")
+                     or [])
+    if not http_services and scan_web:
+        # Network scan unavailable/failed -> probe common HTTP ports directly
+        # so gobuster still has an nmap-equivalent discovery step.
+        from portsets import probe_http_ports
+        http_services = probe_http_ports(net_target)
+        if http_services:
+            print(f"[i] direct probe found HTTP on port "
+                  f"{http_services[0]['port']} -> {http_services[0]['url']}")
     if scan_web:
         print("[*] Web app audit...")
         try:
             ws = WebScanner(target, evidence=evidence)
+            if http_services:
+                det_url = http_services[0].get("url") or ""
+                # Always sync port/service metadata with what nmap -sV (or the
+                # direct probe) actually observed; re-point whenever the
+                # detected URL differs from the assumed one.
+                ws.set_target(det_url,
+                              port=http_services[0].get("port"),
+                              service=http_services[0].get("service"))
+                from urllib.parse import urlparse as _up
+                req_port = _up(target if "://" in target else "http://" + target).port
+                det_port = _up(det_url).port
+                if det_port and det_port not in (req_port, 80, 443):
+                    print(f"[i] nmap -sV found HTTP on port {det_port}; "
+                          f"web audit re-pointed to {ws.target}")
             web_result = {
                 "headers": ws.check_headers(),
                 "technologies": ws.detect_technologies(),
-                "directories": ws.gobuster_scan(progress_cb=log),
+                "directories": ws.gobuster_scan(progress_cb=log,
+                                                http_services=http_services),
                 "tls": ws.analyze_tls(),
                 "robots_sitemap": ws.fetch_robots_sitemap(),
                 "sensitive_paths": ws.probe_sensitive_paths(),
@@ -100,7 +137,10 @@ def main():
     if scan_nuclei:
         print("[*] Nuclei template scan...")
         try:
-            nsc = NucleiScanner(target, evidence=evidence, rate_limit=10)
+            nuc_target = (((results.get("web") or {}).get("directories") or {})
+                          .get("target")) \
+                or (results.get("network") or {}).get("primary_http_url") or target
+            nsc = NucleiScanner(nuc_target, evidence=evidence, rate_limit=10)
             nuc_result = nsc.scan(progress_cb=log)
             results["nuclei"] = nuc_result
             add_all(findings, nuc_result.get("findings"))
