@@ -111,7 +111,7 @@ Then open **http://localhost:8501** in your browser.
    - ☑ Network Scan (Nmap + vulners)
    - ☑ Web App Audit (headers + dirs)
    - ☑ DNS / Email Security (SPF + DMARC)
-3. Set the **port range** (default `1-1000`).
+3. Choose the **port selection** (default: **Nmap Top 1000 ports** — nmap's ranked list of the 1,000 most commonly used ports out of all 65,535, via `--top-ports 1000`). Other options: Top 100 (quick), Ports 1-1000 (full low-range sweep with `-p 1-1000`), or a custom range/list such as `80,443,8000-9000`.
 4. Click **Run SmartVAPT Scan**.
 5. Review live progress, the findings table, and download the **PDF report**.
 

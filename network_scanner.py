@@ -127,13 +127,27 @@ class NetworkScanner:
             arguments = "-sV -sC --script vulners"
             if os_detect:
                 arguments += " -O --osscan-guess"
+        # python-nmap passes *ports* as nmap's service mask (-sG), which only
+        # understands literal ranges/lists ("70-81"), NOT presets like
+        # "top1000" (nmap would error: "Found no matches for the service mask
+        # 'top1000'"). Presets must travel inside `arguments` as
+        # "--top-ports N" with an empty mask instead.
+        port_tokens = port_arg_tokens(norm_ports)
+        if port_tokens[0] == "--top-ports":
+            arguments = f"{arguments} --top-ports {port_tokens[1]}"
+            # python-nmap rejects an empty ports string ("port specifications
+            # are illegal"), so pass nmap's own default full mask instead;
+            # --top-ports in `arguments` still restricts to the preset.
+            scan_ports_arg = "1-10000"
+        else:
+            scan_ports_arg = norm_ports
 
         if progress_cb is not None:
             xml_path = self._scan_streaming(norm_ports, arguments,
                                             progress_cb, stop_flag)
             if xml_path is None:
                 # streaming path failed before producing results; fall back
-                self.nm.scan(hosts=self.target, ports=norm_ports,
+                self.nm.scan(hosts=self.target, ports=scan_ports_arg,
                              arguments=arguments)
             else:
                 with open(xml_path, "r", errors="replace") as fh:
@@ -143,7 +157,7 @@ class NetworkScanner:
                 self._nm = _ReportOnlyScanner(report, raw)
         else:
             try:
-                self.nm.scan(hosts=self.target, ports=norm_ports,
+                self.nm.scan(hosts=self.target, ports=scan_ports_arg,
                              arguments=arguments)
             except nmap.PortScannerError as e:
                 return {"error": str(e), "target": self.target}
@@ -154,6 +168,25 @@ class NetworkScanner:
             except Exception:
                 pass
         parsed = self._parse()
+        # Guard against silent failures: python-nmap returns an empty result
+        # set (0 hosts) when nmap errors out (e.g. bad port mask). Surface the
+        # real nmap error instead of reporting a bogus "clean" scan.
+        if not parsed["hosts"]:
+            err = ""
+            try:
+                rs = (self.nm.get_nmap_last_output() or b"")
+                if isinstance(rs, bytes):
+                    rs = rs.decode("utf-8", "replace")
+                import re as _re
+                m = _re.search(r'errormsg="([^"]*)"', rs)
+                if m:
+                    err = m.group(1)
+            except Exception:
+                pass
+            if err:
+                return {"error": f"nmap scan failed: {err}",
+                        "target": self.target, "hosts": [],
+                        "ports_requested": norm_ports}
         parsed["ports_requested"] = norm_ports
         # Surface where HTTP is actually running (from -sV service detection)
         # so web fingerprinting / gobuster / nuclei target the right port.

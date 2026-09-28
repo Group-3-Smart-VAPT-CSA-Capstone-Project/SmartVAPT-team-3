@@ -1,0 +1,28 @@
+OpenBLAS WARNING - could not determine the L2 cache size on this system, assuming 256k
+OpenBLAS WARNING - could not determine the L2 cache size on this system, assuming 256k
+[*] Network scan (nmap + vulners)...
+[*] Web app audit...
+[2K/.hta                 (Status: 403) [Size: 286]
+[2K/.htpasswd            (Status: 403) [Size: 291]
+[2K/.htaccess            (Status: 403) [Size: 291]
+[2K/.svn/entries         (Status: 403) [Size: 294]
+[2K/.svn                 (Status: 301) [Size: 316] [--> http://scanme.nmap.org/.svn/]
+[2K/favicon.ico          (Status: 403) [Size: 293]
+[2K/images               (Status: 301) [Size: 318] [--> http://scanme.nmap.org/images/]
+[2K/index                (Status: 200) [Size: 6974]
+[2K/index.html           (Status: 200) [Size: 6974]
+[2K/shared               (Status: 301) [Size: 318] [--> http://scanme.nmap.org/shared/]
+[*] DNS / email security (SPF/DMARC)...
+[*] Nuclei template scan...
+[i] nuclei skipped: nuclei binary not found. Install it: sudo apt install nuclei  (or download from https://github.com/projectdiscovery/nuclei)
+[*] Scoring / enrichment...
+[*] AI analysis (graceful without GEMINI_API_KEY)...
+[*] Generating PDF report...
+
+===== SCAN SUMMARY =====
+Target   : scanme.nmap.org
+Scan ID  : 20260928_073056
+Findings : 163 total -> {'critical': 27, 'high': 51, 'medium': 66, 'low': 6, 'info': 13}
+Network  : {'open_ports': 4, 'total_cves': 155, 'critical': 27, 'high': 49, 'medium': 60, 'low': 6, 'info': 13}
+Evidence : evidence/20260928_073056
+Report   : SmartVAPT_20260928_073056.pdf
