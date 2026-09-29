@@ -168,6 +168,9 @@ class WebScanner:
         by nmap -sV (NetworkScanner.find_http_services). When provided, the
         first entry's URL is used as the gobuster base — so if HTTP actually
         runs on 8080/443/etc. instead of port 80, gobuster still fires.
+        When no HTTP service was detected at all (nmap -sV found no
+        HTTP-speaking port and the direct probe also failed), an explicit
+        error is recorded instead of silently returning nothing.
         If the gobuster binary is unavailable, a lightweight Python fuzzer
         over the same wordlist is used as fallback.
         """
@@ -175,6 +178,11 @@ class WebScanner:
         if http_services:
             self.set_target(http_services[0].get("url") or self.target)
         result = {"target": self.target, "found": [], "findings": [], "error": None}
+        if not http_services:
+            # No confirmed HTTP port -> don't brute-force a non-HTTP service.
+            result["error"] = ("No HTTP service detected by nmap -sV for this "
+                               "target; directory brute-forcing skipped.")
+            return result
         if not os.path.exists(wordlist):
             result["error"] = f"Wordlist not found: {wordlist}"
             return result

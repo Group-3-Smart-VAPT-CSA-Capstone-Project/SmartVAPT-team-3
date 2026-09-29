@@ -176,8 +176,14 @@ class TestGobusterAuthWiring:
         monkeypatch.setattr(wsm.subprocess, "run", fake_run)
         ws = wsm.WebScanner("https://x.example",
                             auth_headers={"Cookie": "sid=9", "X-Env": "prod"})
-        res = ws.gobuster_scan(wordlist="/tmp/common.txt")
+        # gobuster now only fires against an nmap -sV-confirmed HTTP endpoint,
+        # so the test supplies one (HTTP detected on 8443 instead of 80).
+        services = [{"url": "https://x.example:8443", "port": 8443,
+                     "service": "https"}]
+        res = ws.gobuster_scan(wordlist="/tmp/common.txt",
+                               http_services=services)
         cmd = captured["cmd"]
+        assert "-u" in cmd and cmd[cmd.index("-u") + 1] == "https://x.example:8443"
         assert "-c" in cmd and cmd[cmd.index("-c") + 1] == "sid=9"
         assert "-H" in cmd and cmd[cmd.index("-H") + 1] == "X-Env: prod"
         assert not res.get("error")  # error=None -> falsy; gracefully handled
