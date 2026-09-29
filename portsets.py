@@ -11,7 +11,8 @@ import re
 
 PORT_SETS = {
     "top100": {"label": "Nmap Top 100 ports", "spec": "--top-ports 100"},
-    "top1000": {"label": "Nmap Top 1000 ports", "spec": "--top-ports 1000"},
+    "top1000": {"label": "Top 1000 most-used ports of all 65535",
+                "spec": "--top-ports 1000"},
     "top10000": {"label": "Nmap Top 10000 ports (slow)", "spec": "--top-ports 10000"},
     # Literal full low range, kept as an explicit preset so the UI/driver
     # never hardcodes it inside the scanner.
@@ -82,7 +83,13 @@ def port_arg_tokens(value: str) -> list:
     """
     norm = resolve_ports(value)
     if norm in PORT_SETS:
-        return ["--top-ports", norm.replace("top", "")]
+        spec = PORT_SETS[norm]["spec"].split()
+        # Presets like "top1000" -> ["--top-ports", "1000"]; literal-range
+        # presets like "1-1000" already carry their own "-p <spec>" tokens,
+        # so use them verbatim instead of mis-rendering "--top-ports 1-1000".
+        if spec and spec[0] == "--top-ports" and norm.startswith("top"):
+            return [spec[0], norm.replace("top", "")]
+        return spec
     return ["-p", norm]
 
 

@@ -28,16 +28,18 @@ with st.sidebar:
     scan_dns = st.checkbox("DNS / Email Security (SPF + DMARC)", value=True)
     st.markdown("**Extended vectors**")
     ports_mode = st.radio("Port selection",
-                          ["Nmap Top 1000 ports (recommended)",
+                          ["Top 1000 most-used ports of all 65535 (recommended)",
                            "Nmap Top 100 ports (quick)",
                            "Ports 1-1000 (full low range)",
                            "Custom range / list"],
                           horizontal=False,
-                          help="Top-ports presets scan nmap's most common "
-                               "ports; 'Ports 1-1000' sweeps the whole "
-                               "1-1000 range (-p 1-1000); custom accepts "
-                               "e.g. 80,443,8000-9000")
-    if ports_mode.startswith("Nmap Top 1000"):
+                          help="The recommended preset scans nmap's Top 1000 "
+                               "most famous/used ports across the entire "
+                               "65535-port space (--top-ports 1000) instead "
+                               "of a sequential 1-1000 sweep; 'Ports 1-1000' "
+                               "sweeps the whole 1-1000 range (-p 1-1000); "
+                               "custom accepts e.g. 80,443,8000-9000")
+    if ports_mode.startswith("Top 1000"):
         ports = "top1000"
     elif ports_mode.startswith("Nmap Top 100 "):
         ports = "top100"

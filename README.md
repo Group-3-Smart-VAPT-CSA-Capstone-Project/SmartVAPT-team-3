@@ -21,8 +21,8 @@ The developers accept no liability for misuse and criminal proceedings may be in
 
 | Vector | Tooling | Checks |
 |---|---|---|
-| **Network Scan** | Nmap + `vulners` NSE script | Port discovery, service/version detection, CVE correlation |
-| **Web App Audit** | Python requests, OpenSSL, gobuster | HTTP security headers, TLS analysis, technology fingerprinting, directory & sensitive-path enumeration, robots.txt/sitemap review |
+| **Network Scan** | Nmap (`--top-ports 1000` default = the 1000 most-used ports of all 65535; custom ranges via `-p`) + `vulners` NSE script + version detection `-sV` | Port discovery, service/version detection, CVE correlation. HTTP-speaking ports are located by `-sV` and passed to the web vector |
+| **Web App Audit** | Python requests, OpenSSL, gobuster (targets the nmap `-sV`-detected HTTP port — not hardcoded 80), **Nuclei (default template scanner)** | HTTP security headers, TLS analysis, technology fingerprinting, directory & sensitive-path enumeration on the confirmed HTTP port, Nuclei template matches, robots.txt/sitemap review |
 | **DNS / Email Security** | `dig` / host lookups | SPF record, DMARC record, MX and related DNS hygiene |
 | **Findings Engine** | `findings.py` | Normalizes all findings, deduplicates, assigns severity (Critical / High / Medium / Low / Info) |
 | **Evidence Store** | `evidence.py` | Saves raw tool output per scan (`evidence/<scan_id>/`) so every finding is reproducible |
