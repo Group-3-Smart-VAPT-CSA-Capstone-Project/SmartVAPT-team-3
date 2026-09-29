@@ -47,3 +47,13 @@ AFTER  https status       : 200
 AFTER  headers still missing: none
 RESULT: ALL 7 FINDINGS FIXED (verified locally)
 ```
+
+## Apply-and-verify harness (scan 20260929_035956)
+
+`fixes/apply_fix.py` proves the remediation end-to-end using SmartVAPT's own
+checks: it starts a local baseline server reproducing example.com's exact
+response profile (7 findings), applies `nginx_smartvapt.conf` behaviour
+(301 HTTP->HTTPS + all 6 hardened headers), then re-runs the identical
+WebScanner checks -> **0 findings remaining**.
+
+Run with: `./venv/bin/python -W ignore fixes/apply_fix.py`
