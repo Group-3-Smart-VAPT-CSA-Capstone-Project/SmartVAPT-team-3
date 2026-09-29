@@ -422,7 +422,7 @@ class WebScanner:
                                         "location": h.headers.get("Location")})
             result["chain"].append({"status": r.status_code, "url": r.url, "location": None})
             if self.target.startswith("http://") and not any(
-                    h["url"].startswith("https://") for h in r.history):
+                    h.url.startswith("https://") for h in r.history):
                 # Accuracy check: only report a missing redirect when the host
                 # actually serves TLS on 443. If HTTPS is unavailable, flagging
                 # 'no redirect' would be misleading — note it instead.
