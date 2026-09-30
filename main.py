@@ -575,6 +575,28 @@ if run:
                 st.markdown(f"#### Sensitive Paths Exposed ({len(sens)})")
                 st.dataframe(pd.DataFrame(sens),
                              use_container_width=True, hide_index=True)
+            # False-positive reduction transparency (soft-404 / MIME / signature)
+            sp = web.get("sensitive_paths", {}) or {}
+            base = sp.get("soft404_baseline") or {}
+            disc = sp.get("discarded", [])
+            if base:
+                if base.get("detected"):
+                    title_part = f", title {base.get('title')!r}" if base.get("title") else ""
+                    st.caption(f"Soft-404 baseline: DETECTED "
+                               f"({base.get('body_size')} bytes{title_part}) — "
+                               f"{base.get('returned_200')}/{base.get('probed')} "
+                               f"random paths returned HTTP 200.")
+                else:
+                    st.caption("Soft-404 baseline: not detected "
+                               "(server returns real 404s for missing paths).")
+            if disc:
+                with st.expander(f"Filtered false positives ({len(disc)})"):
+                    st.dataframe(
+                        pd.DataFrame([{"path": d["path"], "status": d["status"],
+                                       "size": d["size"],
+                                       "Content-Type": d.get("content_type"),
+                                       "Discard reason": d["reason"]} for d in disc]),
+                        use_container_width=True, hide_index=True)
 
     # ================== DNS TAB ==================
     with tab3:
