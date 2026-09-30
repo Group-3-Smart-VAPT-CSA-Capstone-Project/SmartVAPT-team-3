@@ -1,7 +1,8 @@
 import subprocess, re, ssl, socket, requests, dns.resolver, os, shutil
+import hashlib, secrets
 from datetime import datetime, timezone
 from urllib.parse import urlparse
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from findings import Finding
 from evidence import EvidenceStore
 
@@ -26,6 +27,145 @@ TECH_BODY_PATTERNS = {
 SENSITIVE_PATHS = [".env", ".git/config", "backup.zip", "backup.tar.gz",
                    "config.php.bak", "wp-config.php.bak", "db.sql",
                    ".htpasswd", "id_rsa", ".aws/credentials"]
+
+# ---------------------------------------------------------------------------
+# False-positive reduction for sensitive-path probing
+# ---------------------------------------------------------------------------
+# 1) Soft-404 baseline: many servers answer random non-existent paths with
+#    HTTP 200 + a generic page (size / title / body hash). Any "found"
+#    sensitive file matching that baseline is a soft-404, not a real file.
+SOFT404_PROBES = 3  # number of random non-existent paths to probe
+
+# 2) Content-Type enforcement: every extension must come back with one of
+#    these MIME types, otherwise the response is (almost certainly) an HTML
+#    error/placeholder page -> false positive.
+EXPECTED_CONTENT_TYPES = {
+    ".zip":          ["application/zip"],
+    ".gz":           ["application/gzip", "application/x-gzip",
+                      "application/x-tar", "application/x-compressed"],
+    ".tar.gz":       ["application/gzip", "application/x-gzip",
+                      "application/x-tar", "application/x-compressed"],
+    ".sql":          ["text/plain", "application/sql", "application/x-sql",
+                      "text/x-sql"],
+    ".bak":          ["text/plain", "application/octet-stream"],
+    ".env":          ["text/plain", "application/octet-stream"],
+    ".htpasswd":     ["text/plain", "application/octet-stream"],
+    ".git/config":   ["text/plain", "application/octet-stream"],
+    "id_rsa":        ["text/plain", "application/octet-stream"],
+    ".aws/credentials": ["text/plain", "application/octet-stream"],
+}
+HTML_MIME_RE = re.compile(r"text/html|application/xhtml", re.I)
+
+# 3) Content signature (regex) validation: a genuine sensitive file carries a
+#    recognizable header/body signature. The first bytes of the response are
+#    checked against these patterns before a finding is raised.
+#    - text signatures run against the decoded head snippet (curl-style:
+#      GET <url>/<path> | head -c 400 equivalent)
+#    - binary signatures (magic bytes) run against the raw leading bytes.
+SIGNATURE_PATTERNS = {
+    ".env":          [r"(?m)^[A-Z][A-Z0-9_.]{1,60}\s*=\s*\S"],
+    ".git/config":   [r"\[core\]|\[remote"],
+    "id_rsa":        [r"-----BEGIN (?:OPENSSH |RSA |DSA |EC |PGP )?PRIVATE KEY-----"],
+    ".htpasswd":     [r"(?m)^[A-Za-z0-9._@\-]{2,64}:[^\s:]{13,}"],
+    ".aws/credentials": [r"(?m)^\s*\[[A-Za-z0-9_\-]+\]\s*$",
+                         r"(?i)(aws_access_key_id|aws_secret_access_key)\s*="],
+    ".sql":          [r"(?i)/\*.*\*/|CREATE\s+(?:TABLE|DATABASE)|INSERT\s+INTO|"
+                      r"DUMP|ALTER\s+TABLE|USE\s+\w"],
+    ".php.bak":      [r"<\?php|<\?=|echo\s|DB_NAME|define\s*\("],
+    ".bak":          [r"<\?php|password|secret|key|host|user|define\s*\("],
+    # .zip / .tar.gz are validated via BINARY_SIGNATURES magic bytes only.
+}
+
+BINARY_SIGNATURES = {
+    ".zip":    [b"PK\x03\x04", b"PK\x05\x06"],           # local / empty zip
+    ".tar.gz": [b"\x1f\x8b"],                            # gzip magic
+    ".gz":     [b"\x1f\x8b"],
+}
+
+
+def _extension_key(path: str) -> Optional[str]:
+    """Return the most specific known extension key for a sensitive path."""
+    pl = path.lower().strip("/")
+    if pl in SIGNATURE_PATTERNS or pl in EXPECTED_CONTENT_TYPES:
+        return pl
+    candidates = sorted(set(SIGNATURE_PATTERNS) | set(EXPECTED_CONTENT_TYPES),
+                        key=len, reverse=True)
+    for ext in candidates:
+        if ext.startswith(".") and pl.endswith(ext):
+            return ext
+    # bare filenames that are their own signature keys (id_rsa, .aws/credentials)
+    base = pl.rsplit("/", 1)[-1]
+    for key in set(SIGNATURE_PATTERNS) | set(EXPECTED_CONTENT_TYPES):
+        if not key.startswith(".") and (base == key or pl.endswith(key)):
+            return key
+    return None
+
+
+def _primary_mime(content_type: Optional[str]) -> str:
+    """'application/zip; charset=binary' -> 'application/zip' (lowercase)."""
+    return (content_type or "").split(";")[0].strip().lower()
+
+
+def _html_title(body: str) -> Optional[str]:
+    m = re.search(r"<title[^>]*>(.*?)</title>", body or "", re.I | re.S)
+    if m:
+        return m.group(1).strip()[:200]
+    return None
+
+
+def matches_soft404_baseline(meta: Dict[str, Any], baseline: Optional[Dict[str, Any]]) -> bool:
+    """True when a 200-response looks exactly like the server's soft-404 page.
+
+    Comparison points (any match flags it): identical body size, identical
+    body SHA-256, or identical <title> when both sides have one.
+    """
+    if not baseline or not baseline.get("detected"):
+        return False
+    if baseline.get("body_sha256") and meta.get("body_sha256") == baseline["body_sha256"]:
+        return True
+    if baseline.get("body_size") is not None and meta.get("size") == baseline["body_size"]:
+        return True
+    t1, t2 = baseline.get("title"), meta.get("title")
+    if t1 and t2 and t1 == t2:
+        return True
+    return False
+
+
+def content_type_ok(path: str, content_type: Optional[str]) -> bool:
+    """MIME-type sanity check: reject responses whose Content-Type cannot
+    belong to the requested file type (e.g. /backup.zip served as
+    text/html is a soft-404/error page, not a real archive)."""
+    mime = _primary_mime(content_type)
+    if not mime:
+        return True  # server omitted the header; fall back to other checks
+    if HTML_MIME_RE.search(mime):
+        return False  # HTML is never a legitimate sensitive-file payload here
+    ext = _extension_key(path)
+    allowed = EXPECTED_CONTENT_TYPES.get(ext or "")
+    if allowed:
+        return mime in allowed
+    return True
+
+
+def has_valid_signature(path: str, head_bytes: bytes) -> bool:
+    """Regex/magic-byte signature check on the first bytes of the response
+    (equivalent of: curl -sk <url>/<path> | head -c 400)."""
+    ext = _extension_key(path)
+    if not ext:
+        return True  # unknown type: don't over-filter
+    blob = head_bytes or b""
+    for magic in BINARY_SIGNATURES.get(ext, []):
+        if magic in blob[:16]:
+            return True
+    patterns = SIGNATURE_PATTERNS.get(ext, [])
+    try:
+        text = blob.decode("utf-8", errors="replace")
+    except Exception:
+        return False
+    # A NUL byte in the head of a supposedly-text file means binary junk.
+    if "\x00" in text and not BINARY_SIGNATURES.get(ext):
+        return False
+    return any(re.search(p, text) for p in patterns)
 
 def parse_auth_headers(raw: str) -> Dict[str, str]:
     """Parse a user-supplied block of HTTP headers (one 'Name: value' per
@@ -388,28 +528,152 @@ class WebScanner:
             ))
         return result
 
+    def detect_soft404_baseline(self) -> Dict[str, Any]:
+        """Request SOFT404_PROBES random non-existent paths and record how the
+        server answers them.
+
+        If the server returns HTTP 200 for (most) random paths, it is doing
+        "soft 404" — every 200 from the sensitive-path scan must then be
+        compared against this baseline (body size / SHA-256 / <title>) so
+        generic placeholder pages are not reported as exposed files.
+        The baseline is cached on the instance for reuse by other methods.
+        """
+        probes = []
+        for _ in range(SOFT404_PROBES):
+            token = secrets.token_hex(8)
+            path = f"smvapt-{token}-404-{secrets.randbelow(99999)}"
+            url = f"{self.target}/{path}"
+            entry = {"path": path, "status": None, "size": None,
+                     "body_sha256": None, "title": None, "content_type": None}
+            try:
+                r = requests.get(url, timeout=self.timeout, allow_redirects=False,
+                                 headers=self.auth_headers or None)
+                entry["status"] = r.status_code
+                entry["size"] = len(r.content)
+                entry["body_sha256"] = hashlib.sha256(r.content).hexdigest()
+                entry["content_type"] = _primary_mime(r.headers.get("Content-Type"))
+                try:
+                    entry["title"] = _html_title(r.text[:20000])
+                except Exception:
+                    entry["title"] = None
+            except requests.RequestException as e:
+                entry["error"] = str(e)
+            probes.append(entry)
+
+        twos = [p for p in probes if p["status"] == 200]
+        baseline = {
+            "detected": False,
+            "probed": len(probes),
+            "returned_200": len(twos),
+            "note": "",
+            "probes": probes,
+            # convenience top-level fields mirror the dominant 200 response
+            "body_size": None,
+            "body_sha256": None,
+            "title": None,
+            "content_type": None,
+        }
+        if twos and len(twos) >= max(1, len(probes) - 1):
+            # majority of random paths answer with 200 -> soft-404 behaviour
+            sizes = [p["size"] for p in twos]
+            hashes = [p["body_sha256"] for p in twos]
+            titles = [p["title"] for p in twos if p["title"]]
+            baseline["detected"] = True
+            baseline["body_size"] = max(set(sizes), key=sizes.count)
+            baseline["body_sha256"] = max(set(hashes), key=hashes.count)
+            baseline["title"] = max(set(titles), key=titles.count) if titles else None
+            baseline["content_type"] = twos[0]["content_type"]
+            baseline["note"] = (
+                f"Soft-404 baseline recorded: {len(twos)}/{len(probes)} random "
+                f"paths returned HTTP 200 (typical size "
+                f"{baseline['body_size']} bytes, title {baseline['title']!r}). "
+                f"Matching responses will be discarded during sensitive-file "
+                f"scanning.")
+        elif twos:
+            baseline["note"] = ("Some random paths returned 200 but no reliable "
+                                "majority baseline; size/hash filtering skipped.")
+        else:
+            baseline["note"] = ("Server returns proper error codes for "
+                                "non-existent paths; no soft-404 baseline needed.")
+        self._soft404_baseline = baseline
+        if self.evidence:
+            self.evidence.save_json("soft404_baseline", baseline)
+        return baseline
+
+    @property
+    def soft404_baseline(self) -> Optional[Dict[str, Any]]:
+        cached = getattr(self, "_soft404_baseline", None)
+        if cached is None:
+            cached = self.detect_soft404_baseline()
+        return cached
+
     def probe_sensitive_paths(self) -> Dict[str, Any]:
-        result = {"found": [], "findings": []}
+        """Probe known sensitive paths with three layers of false-positive
+        reduction:
+          1. Soft-404 baseline (size / body hash / HTML title) comparison.
+          2. Content-Type enforcement (.zip must be application/zip, etc.).
+          3. Content-signature validation on the first 400 bytes of the body
+             (regex/magic-byte checks: .env key=value, [core], BEGIN PRIVATE
+             KEY, htpasswd user:hash, ...).
+        Every candidate is still recorded (with its discard reason) so the
+        report can show what was filtered and why.
+        """
+        HEAD_BYTES = 400  # curl -sk <url>/<path> | head -c 400 equivalent
+        result = {"found": [], "findings": [], "discarded": [],
+                  "soft404_baseline": None}
+        baseline = self.detect_soft404_baseline()
+        result["soft404_baseline"] = {k: baseline[k] for k in
+                                      ("detected", "probed", "returned_200",
+                                       "body_size", "body_sha256", "title",
+                                       "note")}
         for path in SENSITIVE_PATHS:
             url = f"{self.target}/{path}"
             try:
                 r = requests.get(url, timeout=self.timeout, allow_redirects=False,
-                         headers=self.auth_headers or None)
-                if r.status_code in (200, 206):
-                    result["found"].append({"path": path, "status": r.status_code,
-                                            "size": len(r.content)})
-                    result["findings"].append(self._mk_finding(
-                        id=self._next_id(), vector="web",
-                        title=f"Sensitive file publicly accessible: /{path}",
-                        severity="critical",
-                        description=f"/{path} is publicly readable.",
-                        evidence=f"GET {url} -> {r.status_code} ({len(r.content)} bytes)",
-                        owasp="A01:2021 - Broken Access Control",
-                        target=self.target,
-                        remediation=f"Block /{path} at web server and rotate leaked secrets.",
-                    ))
+                                 headers=self.auth_headers or None)
+                if r.status_code not in (200, 206):
+                    continue
+                head = r.content[:HEAD_BYTES]
+                meta = {"path": path, "status": r.status_code,
+                        "size": len(r.content),
+                        "body_sha256": hashlib.sha256(r.content).hexdigest(),
+                        "head_sha256": hashlib.sha256(head).hexdigest(),
+                        "content_type": _primary_mime(r.headers.get("Content-Type")),
+                        "title": _html_title(r.text[:20000])}
             except requests.RequestException:
                 continue
+
+            # ---- Layer 1: soft-404 baseline ----------------------------
+            if matches_soft404_baseline(meta, baseline):
+                result["discarded"].append({**meta, "reason": "soft404_baseline"})
+                continue
+            # ---- Layer 2: Content-Type enforcement ---------------------
+            if not content_type_ok(path, meta["content_type"]):
+                result["discarded"].append({
+                    **meta,
+                    "reason": f"content_type_mismatch ({meta['content_type'] or 'missing'})"})
+                continue
+            # ---- Layer 3: content signature (regex / magic bytes) ------
+            if not has_valid_signature(path, head):
+                result["discarded"].append({**meta, "reason": "no_content_signature"})
+                continue
+
+            result["found"].append(meta)
+            result["findings"].append(self._mk_finding(
+                id=self._next_id(), vector="web",
+                title=f"Sensitive file publicly accessible: /{path}",
+                severity="critical",
+                description=f"/{path} is publicly readable and its content "
+                            f"matches a real {path} file signature.",
+                evidence=(f"GET {url} -> {meta['status']} "
+                          f"({meta['size']} bytes, "
+                          f"Content-Type: {meta['content_type'] or 'n/a'}, "
+                          f"sha256={meta['body_sha256'][:16]}…, "
+                          f"head-400 signature verified)"),
+                owasp="A01:2021 - Broken Access Control",
+                target=self.target,
+                remediation=f"Block /{path} at web server and rotate leaked secrets.",
+            ))
         return result
 
     def analyze_redirects(self) -> Dict[str, Any]:

@@ -187,3 +187,164 @@ class TestGobusterAuthWiring:
         assert "-c" in cmd and cmd[cmd.index("-c") + 1] == "sid=9"
         assert "-H" in cmd and cmd[cmd.index("-H") + 1] == "X-Env: prod"
         assert not res.get("error")  # error=None -> falsy; gracefully handled
+
+
+class TestSoft404AndSignatureValidation:
+    """False-positive reduction for sensitive-path probing:
+    soft-404 baseline, Content-Type enforcement, content signatures."""
+
+    # ---- pure helper tests ------------------------------------------------
+    def test_extension_key_resolution(self):
+        from web_scanner import _extension_key
+        assert _extension_key("backup.zip") == ".zip"
+        assert _extension_key("backup.tar.gz") == ".tar.gz"
+        assert _extension_key("db.sql") == ".sql"
+        assert _extension_key(".env") == ".env"
+        assert _extension_key(".git/config") == ".git/config"
+        assert _extension_key("id_rsa") == "id_rsa"
+        assert _extension_key(".htpasswd") == ".htpasswd"
+        assert _extension_key("wp-config.php.bak") == ".php.bak"
+        assert _extension_key("unknownthing") is None
+
+    def test_content_type_zip_requires_application_zip(self):
+        from web_scanner import content_type_ok
+        assert content_type_ok("backup.zip", "application/zip")
+        assert content_type_ok("backup.zip", "application/zip; charset=x")
+        assert not content_type_ok("backup.zip", "text/html")           # FP
+        assert not content_type_ok("backup.zip", "text/html; charset=UTF-8")
+        assert content_type_ok("backup.zip", None)  # missing header -> other layers decide
+
+    def test_content_type_sql(self):
+        from web_scanner import content_type_ok
+        assert content_type_ok("db.sql", "text/plain")
+        assert content_type_ok("db.sql", "application/sql")
+        assert not content_type_ok("db.sql", "text/html")
+
+    def test_signature_env(self):
+        from web_scanner import has_valid_signature
+        assert has_valid_signature(".env", b"APP_ENV=production\nDB_PASSWORD=s3cret\n")
+        assert not has_valid_signature(".env", b"<html><body>Not Found</body></html>")
+
+    def test_signature_git_config(self):
+        from web_scanner import has_valid_signature
+        assert has_valid_signature(".git/config", b"[core]\n\trepositoryformatversion = 0\n")
+        assert has_valid_signature(".git/config", b'[remote "origin"]\n\turl = x\n')
+        assert not has_valid_signature(".git/config", b"Welcome to our site!")
+
+    def test_signature_id_rsa(self):
+        from web_scanner import has_valid_signature
+        assert has_valid_signature("id_rsa", b"-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNz")
+        assert has_valid_signature("id_rsa", b"-----BEGIN RSA PRIVATE KEY-----\nMIIEpA")
+        assert not has_valid_signature("id_rsa", b"<html>404</html>")
+
+    def test_signature_htpasswd(self):
+        from web_scanner import has_valid_signature
+        assert has_valid_signature(".htpasswd", b"admin:$apr1$Zx7L9k2Q$eI6BvY0dGxWqXg0mP2uYV/\n")
+        assert not has_valid_signature(".htpasswd", b"just some random page text here")
+
+    def test_signature_binary_magic(self):
+        from web_scanner import has_valid_signature
+        assert has_valid_signature("backup.zip", b"PK\x03\x04\x14\x00\x00\x00")
+        assert not has_valid_signature("backup.zip", b"<html>oops</html>")
+        assert has_valid_signature("backup.tar.gz", b"\x1f\x8b\x08\x00junk")
+        assert not has_valid_signature("backup.tar.gz", b"hello world")
+
+    def test_soft404_match_by_size_hash_title(self):
+        from web_scanner import matches_soft404_baseline
+        base = {"detected": True, "body_size": 1845,
+                "body_sha256": "abc123", "title": "Custom 404 Page"}
+        assert matches_soft404_baseline({"size": 1845, "body_sha256": "zzz"}, base)
+        assert matches_soft404_baseline({"size": 10, "body_sha256": "abc123"}, base)
+        assert matches_soft404_baseline({"size": 10, "body_sha256": "z",
+                                         "title": "Custom 404 Page"}, base)
+        assert not matches_soft404_baseline({"size": 99, "body_sha256": "other"}, base)
+        # no baseline -> nothing matches (no over-filtering)
+        assert not matches_soft404_baseline({"size": 1845}, {"detected": False})
+        assert not matches_soft404_baseline({"size": 1845}, None)
+
+    # ---- end-to-end probe_sensitive_paths with mocked responses -----------
+    def _mk_resp(self, status, body=b"", ctype=None):
+        import requests
+
+        class R:
+            def __init__(self):
+                self.status_code = status
+                self.content = body
+                self.headers = {}
+                if ctype:
+                    self.headers["Content-Type"] = ctype
+            @property
+            def text(self):
+                return self.content.decode("utf-8", errors="replace")
+        return R()
+
+    def _fake_get_factory(self, routes, soft404_body):
+        import requests
+
+        def fake_get(url, **kw):
+            path = url.split("://", 1)[-1].split("/", 1)[1]
+            if path in routes:
+                return routes[path]
+            if path.startswith("smvapt-"):
+                return self._mk_resp(200, soft404_body, "text/html")
+            return self._mk_resp(404, b"Not Found", "text/html")
+        return fake_get
+
+    def test_probe_discards_soft404_mimes_and_bad_signatures(self, monkeypatch):
+        import web_scanner as wsm
+        soft_body = b"<html><head><title>Page Not Found</title></head>" + b"x" * 1781
+        real_env = self._mk_resp(200, b"APP_KEY=base64:abcdef=\nDB_HOST=localhost\n",
+                                 "text/plain")
+        html_like_env = self._mk_resp(200, soft_body, "text/html")  # same size as baseline
+        zip_as_html = self._mk_resp(200, b"<html>coming soon</html>", "text/html")
+        real_zip = self._mk_resp(200, b"PK\x03\x04" + b"\x00" * 500, "application/zip")
+        bogus_id_rsa = self._mk_resp(200, b"<pre>Directory listing</pre>", "text/plain")
+        routes = {".env": real_env, "backup.zip": zip_as_html,
+                  "id_rsa": bogus_id_rsa}
+        # a soft-404 server also answers /.env-style misses with the generic page
+        monkeypatch.setattr(wsm.requests, "get",
+                            self._fake_get_factory(routes, soft_body))
+        ws = wsm.WebScanner("http://target.example")
+        res = ws.probe_sensitive_paths()
+        found = {f["path"] for f in res["found"]}
+        assert found == {".env"}, f"only signature-valid .env should survive: {found}"
+        reasons = {d["path"]: d["reason"] for d in res["discarded"]}
+        assert reasons["backup.zip"].startswith("content_type_mismatch")
+        assert reasons["id_rsa"] == "no_content_signature"
+        assert res["soft404_baseline"]["detected"] is True
+        assert res["soft404_baseline"]["body_size"] == len(soft_body)
+        titles = [f["title"] for f in res["findings"]]
+        assert any("Sensitive file publicly accessible: /.env" in t for t in titles)
+
+    def test_probe_real_files_when_no_soft404(self, monkeypatch):
+        import web_scanner as wsm
+        real_git = self._mk_resp(200, b"[core]\nrepositoryformatversion = 0\n",
+                                 "text/plain")
+        routes = {".git/config": real_git}
+        # proper 404s on random paths -> no baseline detected
+        def fake_get(url, **kw):
+            path = url.split("://", 1)[-1].split("/", 1)[1]
+            if path in routes:
+                return routes[path]
+            return self._mk_resp(404, b"Not Found", "text/html")
+        monkeypatch.setattr(wsm.requests, "get", fake_get)
+        ws = wsm.WebScanner("http://target.example")
+        res = ws.probe_sensitive_paths()
+        assert res["soft404_baseline"]["detected"] is False
+        assert [f["path"] for f in res["found"]] == [".git/config"]
+        assert res["discarded"] == []
+
+    def test_detect_soft404_baseline_records_size_and_title(self, monkeypatch):
+        import web_scanner as wsm
+        body = b"<html><title>Default Page</title>" + b"y" * 1723
+        def fake_get(url, **kw):
+            return self._mk_resp(200, body, "text/html")
+        monkeypatch.setattr(wsm.requests, "get", fake_get)
+        ws = wsm.WebScanner("http://target.example")
+        base = ws.detect_soft404_baseline()
+        assert base["detected"] is True
+        assert base["probed"] == wsm.SOFT404_PROBES
+        assert base["body_size"] == len(body)
+        assert base["title"] == "Default Page"
+        # cached and reused
+        assert ws.soft404_baseline is base

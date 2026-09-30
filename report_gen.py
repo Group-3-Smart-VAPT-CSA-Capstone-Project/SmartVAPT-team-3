@@ -430,11 +430,30 @@ def _render_appendix(pdf, scan_data: dict):
             for d in dirs[:30]:
                 body(f"  - {d['path']}  [HTTP {d['status']}]")
 
-        sens = (web.get("sensitive_paths", {}) or {}).get("found", [])
+        sp = web.get("sensitive_paths", {}) or {}
+        sens = sp.get("found", [])
         if sens:
             body(f"\nSensitive paths exposed ({len(sens)}):")
             for s in sens:
-                body(f"  - /{s['path']}  [HTTP {s['status']}]")
+                ct = s.get("content_type") or "n/a"
+                body(f"  - /{s['path']}  [HTTP {s['status']}, {ct}, "
+                     f"{s.get('size')} bytes, signature verified]")
+        base = sp.get("soft404_baseline") or {}
+        if base:
+            if base.get("detected"):
+                body(f"\nSoft-404 baseline detected: random paths answer with "
+                     f"HTTP 200 ({base.get('body_size')} bytes, "
+                     f"title {base.get('title')!r}); matching responses are "
+                     f"discarded automatically.")
+            else:
+                body("\nSoft-404 baseline: none (server returns real 404 "
+                     "responses for missing paths).")
+        disc = sp.get("discarded", [])
+        if disc:
+            body(f"\nFalse positives filtered during sensitive-file scan "
+                 f"({len(disc)}):")
+            for d in disc:
+                body(f"  - /{d['path']}  [{d['reason']}]")
 
         redirects = (web.get("redirects", {}) or {}).get("chain", [])
         if redirects:
