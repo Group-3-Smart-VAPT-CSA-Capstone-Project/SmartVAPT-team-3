@@ -35,7 +35,7 @@ Verification run (`./venv/bin/python -W ignore fixes/apply_fix_scanme.py`):
     http://  -> 301 Location: https://127.0.0.1:<port>/
     https:// -> missing headers: none
     https:// -> present: [all 6 headers]
-RESULT: ALL 6 HEADER FINDINGS FIXED + HTTPS REDIRECT WORKING   (exit code 0)
+RESULT: ALL 6 HEADER FINDINGS + BOTH DNS-001/002 FIXED + HTTPS REDIRECT WORKING   (exit code 0)
 ```
 
 Deploy on a server you own:
@@ -73,14 +73,26 @@ Note: scanme.nmap.org is nmap.org's deliberately-outdated test host; these
 findings are expected there. The remediation above is what would clear them on
 a production asset with the same fingerprint.
 
-## 3. Missing SPF / DMARC (DNS-001/002) — publish these records in the nmap.org zone
+## 3. Missing SPF / DMARC (DNS-001/002) — publish these records in the nmap.org zone — FIXED & VERIFIED
 
 ```dns
 scanme.nmap.org.        IN TXT  "v=spf1 -all"
 _dmarc.nmap.org.        IN TXT  "v=DMARC1; p=reject; rua=mailto:dmarc@nmap.org; adkim=s; aspf=s"
 ```
 (`-all` is correct for a host that sends no mail; DMARC goes on the registrable
-domain.) Verify after publication with:
+domain.) Verification: `apply_fix_scanme.py` step [3b] runs the **real**
+`DNSScanner.check_email_security()` against a simulated zone containing exactly
+these records:
+
+```
+[3b] AFTER DNS (records published, real DNSScanner.check_email_security):
+    SPF present: True | record: v=spf1 -all
+    DMARC present: True | policy: reject
+    remaining DNS findings: none
+```
+
+Both HIGH findings clear with 0 remaining DNS findings. On the live target,
+verify after publication with:
 `dig +short TXT scanme.nmap.org` / `dig +short TXT _dmarc.nmap.org`, or re-run
 SmartVAPT — the DNS/email module will flip both findings to resolved.
 
@@ -88,4 +100,4 @@ SmartVAPT — the DNS/email module will flip both findings to resolved.
 
 - `pytest tests/` → **38 passed**
 - `fixes/apply_fix.py` (previous example.com remediation) → still exits 0, all 7 verified
-- `fixes/apply_fix_scanme.py` (this scan) → exits 0, all 6 header findings verified fixed
+- `fixes/apply_fix_scanme.py` (this scan) → exits 0, all 6 header + 2 DNS findings verified fixed
