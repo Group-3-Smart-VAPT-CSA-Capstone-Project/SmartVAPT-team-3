@@ -57,3 +57,12 @@ response profile (7 findings), applies `nginx_smartvapt.conf` behaviour
 WebScanner checks -> **0 findings remaining**.
 
 Run with: `./venv/bin/python -W ignore fixes/apply_fix.py`
+
+## Remediation for scan 20261001_042608 (scanme.nmap.org)
+
+See **`README_scanme_20261001.md`** — Apache-flavoured configs
+(`scanme_apache_security.conf`, `scanme_apache_redirect.conf`) plus an
+apply-and-verify harness (`apply_fix_scanme.py`) that clears all 6 missing-header
+findings and the HTTP→HTTPS gap, verified with SmartVAPT's own WebScanner.
+The 155 CVE findings (Apache 2.4.7 / OpenSSH 6.6.1p1) and SPF/DMARC gaps are
+host/DNS-side actions documented in that README.
