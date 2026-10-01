@@ -18,6 +18,11 @@ class Finding:
     target: str = ""
     port: Optional[int] = None
     service: Optional[str] = None
+    confirmed: Optional[bool] = None
+    confidence: Optional[str] = None
+    cve_surface: Optional[str] = None
+    cve_note: Optional[str] = None
+    severity_downgrade_reason: Optional[str] = None
     remediation: str = ""
     cvss_vector: Optional[str] = None
     remediation_steps: Optional[list] = None
