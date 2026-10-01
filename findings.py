@@ -4,6 +4,24 @@ from datetime import datetime, timezone
 
 SEVERITY_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
 
+# ---------------------------------------------------------------------------
+# Confidence levels
+# ---------------------------------------------------------------------------
+# Every finding carries an explicit confidence so the reader can tell a
+# directly-observed issue apart from one inferred from a version banner.
+CONFIDENCE_ORDER = {"confirmed": 2, "likely": 1, "unverified": 0}
+CONFIDENCE_LABELS = {
+    "confirmed": "Confirmed",     # observed directly in this scan's evidence
+    "likely": "Likely",           # strong inference (e.g. CVE DB match on a banner)
+    "unverified": "Unverified",   # banner/version based only; not proof-of-concept
+}
+
+
+def normalize_confidence(value) -> str:
+    """Return a canonical lower-case confidence string ('unverified' default)."""
+    v = str(value or "").strip().lower()
+    return v if v in CONFIDENCE_ORDER else "unverified"
+
 @dataclass
 class Finding:
     id: str
@@ -22,6 +40,12 @@ class Finding:
     cvss_vector: Optional[str] = None
     remediation_steps: Optional[list] = None
     remediation_commands: Optional[dict] = None
+    # Confidence: "confirmed" | "likely" | "unverified" (see CONFIDENCE_LABELS).
+    confidence: str = "confirmed"
+    # Exploitation surface for CVE findings: "server" | "client" |
+    # "config-dependent". Client-side / config-dependent CVEs must never be
+    # scored as directly-exploitable server vulnerabilities.
+    exploit_surface: str = "server"
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> Dict:
@@ -47,7 +71,13 @@ class FindingSet:
             self.add(f)
 
     def all(self) -> List[Finding]:
-        return sorted(self._findings, key=lambda f: -f.severity_rank)
+        # Severity first, then confidence (a Confirmed High outranks an
+        # Unverified High), then id for stable output.
+        return sorted(self._findings,
+                      key=lambda f: (-f.severity_rank,
+                                     -CONFIDENCE_ORDER.get(
+                                         normalize_confidence(f.confidence), 0),
+                                     f.id))
 
     def by_vector(self, vector: str) -> List[Finding]:
         return [f for f in self.all() if f.vector == vector]

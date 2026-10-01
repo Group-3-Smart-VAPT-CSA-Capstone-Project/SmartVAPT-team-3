@@ -228,15 +228,17 @@ class WebScanner:
         kw.setdefault("service", self.service)
         return Finding(**kw).to_dict()
 
-    def tls_available(self) -> bool:
+    def tls_available(self, host: str = None, port: int = None) -> bool:
         """True if the target host actually serves TLS on the HTTPS port.
 
         Used to avoid reporting 'No HTTP -> HTTPS redirect' when no HTTPS
         service exists to redirect to (that would be an inaccurate finding).
+        *host*/*port* default to the current target's hostname / 443; callers
+        may pass an explicit endpoint (e.g. https-wrapped HTTP on 8443).
         """
         parsed = urlparse(self.target)
-        host = parsed.hostname
-        port = 443
+        host = host or parsed.hostname
+        port = port or 443
         try:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
@@ -249,7 +251,8 @@ class WebScanner:
 
     def check_headers(self) -> Dict[str, Any]:
         result = {"url": self.target, "missing": [], "present": [],
-                  "server": None, "findings": [], "error": None}
+                  "duplicates": {}, "issues": [], "server": None,
+                  "findings": [], "error": None}
         try:
             resp = requests.get(self.target, timeout=self.timeout, allow_redirects=True,
                             headers=self.auth_headers or None)
@@ -260,10 +263,56 @@ class WebScanner:
             self.evidence.save_raw("http_headers",
                 "\n".join(f"{k}: {v}" for k, v in resp.headers.items()))
         result["server"] = resp.headers.get("Server", "unknown")
+
+        # requests merges repeated response headers with ", " — split them
+        # back apart so we can detect multiple layers (nginx + app + proxy)
+        # setting the same header, and conflicting values.
+        def _values(name: str) -> List[str]:
+            raw = ""
+            for k, v in resp.headers.items():
+                if k.lower() == name.lower():
+                    raw = v
+                    break
+            parts = [p.strip() for p in (raw or "").split(",")] if raw else []
+            # HSTS-style directives contain ';' not commas; a single value
+            # like "max-age=31536000; includeSubDomains" stays one entry.
+            return [p for p in parts if p]
+
         h_lower = {k.lower(): v for k, v in resp.headers.items()}
         for header in SECURITY_HEADERS:
+            vals = _values(header)
             if header.lower() in h_lower:
-                result["present"].append({"header": header, "value": h_lower[header.lower()]})
+                result["present"].append({"header": header,
+                                          "value": h_lower[header.lower()],
+                                          "count": len(vals)})
+                if len(vals) > 1:
+                    result["duplicates"][header] = vals
+                    uniq = sorted(set(vals))
+                    conflict = len(uniq) > 1
+                    finding = self._mk_finding(
+                        id=self._next_id(), vector="web",
+                        title=(f"Duplicate{', conflicting' if conflict else ''} "
+                               f"{header} headers ({len(vals)} values)"),
+                        severity="medium" if conflict else "low",
+                        description=(
+                            f"The response contains {len(vals)} separate "
+                            f"{header} headers, which indicates more than one "
+                            "layer (e.g. nginx, application, CDN/proxy) is "
+                            "adding it. Browsers honour only the first value, "
+                            "so the effective policy may differ from what each "
+                            "layer intends." +
+                            (" The values also CONFLICT with each other: "
+                             + " vs ".join(uniq) + ".") if conflict else ""),
+                        evidence="\n".join(f"{header}: {v}" for v in vals),
+                        owasp="A05:2021 - Security Misconfiguration",
+                        target=self.target,
+                        remediation=(f"Set {header} exactly once, at a single "
+                                     "layer (preferably the edge/reverse "
+                                     "proxy); remove add_header/append "
+                                     "directives elsewhere."),
+                    )
+                    result["issues"].append(finding["title"])
+                    result["findings"].append(finding)
             else:
                 result["missing"].append(header)
                 result["findings"].append(self._mk_finding(
@@ -276,6 +325,72 @@ class WebScanner:
                     target=self.target,
                     remediation=f"Add '{header}' to web server configuration.",
                 ))
+
+        # ---- content-level policy weaknesses (parsed from real values) ----
+        csp_vals = [v for pair in _values("Content-Security-Policy") for v in pair.split(";")]
+        csp_blob = " ".join(csp_vals).lower()
+        if "unsafe-eval" in csp_blob:
+            finding = self._mk_finding(
+                id=self._next_id(), vector="web",
+                title="CSP allows 'unsafe-eval'",
+                severity="medium",
+                description=("The Content-Security-Policy includes "
+                             "script-src 'unsafe-eval', which lets injected "
+                             "code call eval()/Function() and defeats most of "
+                             "the protection CSP provides against XSS."),
+                evidence=f"Content-Security-Policy: {h_lower.get('content-security-policy','')}"[:400],
+                owasp="A03:2021 - Cross-Site Scripting",
+                target=self.target,
+                remediation=("Remove 'unsafe-eval'; refactor code that relies "
+                             "on eval() (or use wasm/trusted types) and test "
+                             "with CSP-Report-Only first."),
+            )
+            result["issues"].append(finding["title"])
+            result["findings"].append(finding)
+
+        perm_vals = " ".join(_values("Permissions-Policy")).lower()
+        if re.search(r"(^|[\s,])\*?[\s]*=?\s*\*", perm_vals) or "=*" in perm_vals.replace(" ", ""):
+            finding = self._mk_finding(
+                id=self._next_id(), vector="web",
+                title="Permissions-Policy grants features to any origin ('*')",
+                severity="low",
+                description=("The Permissions-Policy uses wildcard origins "
+                             "(e.g. geolocation=(self *) or feature=*), so "
+                             "third-party frames/embeds can use powerful "
+                             "browser features that should be locked down."),
+                evidence=f"Permissions-Policy: {h_lower.get('permissions-policy','')}"[:400],
+                owasp="A05:2021 - Security Misconfiguration",
+                target=self.target,
+                remediation=("Restrict each feature to explicit origins, e.g. "
+                             "Permissions-Policy: geolocation=(self "
+                             "\"https://your.origin\"), camera=(), "
+                             "microphone=()."),
+            )
+            result["issues"].append(finding["title"])
+            result["findings"].append(finding)
+
+        rp_vals = [v.lower() for v in _values("Referrer-Policy")]
+        # A Referrer-Policy header with multiple *comma-separated* values is
+        # already reported above as a duplicate/conflicting header; only flag
+        # here when the header appears once but its value itself contains
+        # several conflicting directives.
+        if len(set(rp_vals)) > 1 and "Referrer-Policy" not in result["duplicates"]:
+            finding = self._mk_finding(
+                id=self._next_id(), vector="web",
+                title="Conflicting Referrer-Policy values",
+                severity="low",
+                description=("Multiple different Referrer-Policy values are "
+                             "present (" + " vs ".join(sorted(set(rp_vals))) +
+                             "); browsers use only one, so the intended "
+                             "referral-leakage rules may not apply."),
+                evidence="\n".join(f"Referrer-Policy: {v}" for v in _values("Referrer-Policy")),
+                owasp="A05:2021 - Security Misconfiguration",
+                target=self.target,
+                remediation="Standardise on one Referrer-Policy (e.g. "
+                            "strict-origin-when-cross-origin) at a single layer.",
+            )
+            result["issues"].append(finding["title"])
+            result["findings"].append(finding)
         return result
 
     def detect_technologies(self) -> Dict[str, Any]:

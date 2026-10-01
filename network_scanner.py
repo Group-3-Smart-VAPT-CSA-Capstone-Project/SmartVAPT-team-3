@@ -9,6 +9,24 @@ from typing import List, Dict, Any, Callable, Optional
 from findings import Finding
 from evidence import EvidenceStore
 from portsets import PORT_SETS, normalize_ports, port_arg_tokens
+from advisory import (check_backports, exploit_surface, find_weak_algorithms,
+                      SURFACE_NOTES)
+
+# Canonical CVE identifier: four-digit year + 4-7 digit sequence.  Anything
+# that does not match exactly is treated as unresolvable and flagged.
+CVE_ID_RE = re.compile(r"^CVE-(1999|20\d{2})-(\d{4,7})$")
+
+
+def cve_id_valid(cve_id: str) -> bool:
+    """Format-level sanity check for a CVE id (does NOT prove it exists).
+
+    Consecutive ids coming out of a version-banner matcher (e.g.
+    CVE-2026-59995 ... CVE-2026-60002) are often legitimate reservations,
+    but they must each resolve on the NVD before being reported as proven
+    vulnerabilities; ids that fail even this format check are certainly
+    bogus (typos / hallucinated entries) and are never escalated.
+    """
+    return bool(CVE_ID_RE.match((cve_id or "").strip().upper()))
 
 
 # Service names / products that indicate an HTTP-speaking port (nmap -sV).
@@ -43,8 +61,13 @@ def find_http_services(net_result: Dict[str, Any]) -> List[Dict[str, Any]]:
             if not is_http_port(p):
                 continue
             port = p.get("port")
-            ssl_wrap = str(p.get("tunnel") or "").lower() == "ssl" or \
-                str(p.get("service") or "").lower() in ("https", "ssl/http", "https-proxy")
+            svc_name = str(p.get("service") or "").lower()
+            name = str(p.get("name") or "").lower()
+            tunnel = str(p.get("tunnel") or "").lower()
+            # nmap reports TLS-wrapped HTTP as service "ssl/http" (tunnel ssl)
+            # — those ports must be probed over https://, never plain http://.
+            ssl_wrap = (tunnel == "ssl" or "ssl/" in svc_name or "ssl/" in name
+                        or svc_name in ("https", "https-proxy", "ssl/http"))
             scheme = "https" if ssl_wrap else "http"
             default_port = 443 if ssl_wrap else 80
             try:
@@ -236,26 +259,104 @@ class NetworkScanner:
                     if info.get("state") != "open":
                         continue
                     results["summary"]["open_ports"] += 1
+                    banner = " ".join(str(x or "") for x in
+                                      (info.get("product"), info.get("version"),
+                                       info.get("extrainfo"))).strip()
                     cves = self._extract_cves(info)
+                    # Cross-check every banner-derived CVE against the distro
+                    # backport knowledge base BEFORE raising findings, so a
+                    # patched Ubuntu revision does not produce 26 "criticals".
+                    backports = check_backports(info.get("product") or "",
+                                                banner, [c["id"] for c in cves])
+                    weak_crypto = find_weak_algorithms(
+                        "\n".join(str(v) for v in
+                                  info.get("script", {}).values()))
                     for cve in cves:
+                        bp = backports.get(cve["id"].upper(), {})
+                        status = bp.get("status", "unknown")
+                        surface = exploit_surface(cve["id"])
+                        cve["backport_status"] = status
+                        cve["backport_note"] = bp.get("note", "")
+                        cve["surface"] = surface
+                        cve["id_format_valid"] = cve_id_valid(cve["id"])
+                        if status == "patched":
+                            # Distro build already contains the fix: keep the
+                            # entry for transparency but do not count it as a
+                            # vulnerability.
+                            cve["confidence"] = "confirmed"
+                            cve["not_vulnerable"] = True
+                            cve["severity"] = "info"
+                            continue
+                        if not cve["id_format_valid"]:
+                            cve["confidence"] = "unverified"
+                            cve["severity"] = "info"
+                            cve["not_vulnerable"] = True
+                            continue
+                        # Banner matching only: unconfirmed until verified.
+                        cve["confidence"] = ("likely" if status == "vulnerable-likely"
+                                             else "unverified")
                         sev = cve["severity"]
                         results["summary"][sev] += 1
                         results["summary"]["total_cves"] += 1
                         finding_idx += 1
+                        if surface in ("client", "config-dependent"):
+                            desc = (f"{info.get('product','')} {info.get('version','')} "
+                                    f"banner matches {cve['id']}, which is a "
+                                    f"{surface.replace('-', ' ')} issue "
+                                    f"({SURFACE_NOTES[surface]}) — it is NOT a "
+                                    "directly exploitable server vulnerability.")
+                        elif status == "vulnerable-likely":
+                            desc = (f"{info.get('product','')} on port {port}/{proto} "
+                                    f"is likely vulnerable to {cve['id']}: "
+                                    f"{bp.get('note','')}.")
+                        else:
+                            desc = (f"{info.get('product','')} {info.get('version','')} "
+                                    f"on port {port}/{proto} matches advisory data for "
+                                    f"{cve['id']} (banner-based match, unconfirmed — "
+                                    "distro backports may already include the fix).")
                         results["findings"].append(Finding(
                             id=f"NET-{finding_idx:03d}", vector="network",
-                            title=f"{cve['id']} on {info.get('name')} port {port}",
+                            title=(f"{cve['id']} on {info.get('name')} port {port}"
+                                   + (" [unconfirmed, banner-based]"
+                                      if cve["confidence"] == "unverified" else "")),
                             severity=sev,
-                            description=f"{info.get('product','')} {info.get('version','')} on port {port}/{proto} is vulnerable to {cve['id']}.",
+                            description=desc,
                             evidence=cve["raw"], cve=cve["id"], cvss=cve["cvss"],
                             cvss_vector=cve.get("vector"),
                             target=host, port=port, service=info.get("name"),
+                            confidence=cve["confidence"],
+                            exploit_surface=surface,
                             remediation=self._remediation_for(cve["id"]),
                         ).to_dict())
                     host_data["ports"].append({
                         "port": port, "protocol": proto, "service": info.get("name"),
                         "product": info.get("product"), "version": info.get("version"),
-                        "extrainfo": info.get("extrainfo"), "cves": cves})
+                        "extrainfo": info.get("extrainfo"), "cves": cves,
+                        "banner": banner,
+                        "weak_crypto": weak_crypto})
+                    # Weak crypto observed verbatim in NSE output is an
+                    # actionable configuration finding, not just INFO noise.
+                    flat_weak = ([f"MAC {m}" for m in weak_crypto["macs"]]
+                                 + [f"Cipher {c}" for c in weak_crypto["ciphers"]]
+                                 + [f"KEX {k}" for k in weak_crypto["kex"]])
+                    if flat_weak:
+                        finding_idx += 1
+                        results["findings"].append(Finding(
+                            id=f"NET-{finding_idx:03d}", vector="network",
+                            title=(f"Weak cryptographic algorithms offered by "
+                                   f"{info.get('name')} port {port}"),
+                            severity="medium",
+                            description=("The service advertises deprecated/broken "
+                                         "algorithms: " + ", ".join(flat_weak) +
+                                         ". SHA-1 HMACs and legacy ciphers weaken "
+                                         "transport integrity and must be disabled."),
+                            evidence=", ".join(flat_weak),
+                            target=host, port=port, service=info.get("name"),
+                            confidence="confirmed",
+                            remediation=("Disable legacy MACs/ciphers/KEX in the "
+                                         "service configuration (e.g. sshd_config "
+                                         "MACs/Ciphers/KexAlgorithms) and reload."),
+                        ).to_dict())
             results["hosts"].append(host_data)
         return results
 
