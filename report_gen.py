@@ -306,6 +306,17 @@ def _render_pentest_details(pdf, scan_data: dict):
         pdf.set_x(pdf.l_margin)
         pdf.multi_cell(0, 5, _clean_text(f"{i}. [{sev}] {f.get('title','')}"))
         pdf.set_text_color(30, 30, 30)
+        # Accuracy labels: banner-based CVE matches and non-server-surface
+        # CVEs must not read as confirmed, directly-exploitable flaws.
+        if f.get("cve"):
+            surface = f.get("cve_surface") or "server"
+            conf = f.get("confidence") or ("confirmed" if f.get("confirmed") else "")
+            label = f"CVE attack surface: {surface}"
+            if conf:
+                label += f"   Confidence: {conf}"
+            body(label, size=9)
+            if f.get("severity_downgrade_reason"):
+                body(f"Severity adjusted: {f['severity_downgrade_reason']}", size=9)
         paths = exp.get("attack_paths") or []
         if paths:
             body(f"    Attack paths : {'; '.join(paths)[:300]}", size=9)
@@ -455,11 +466,26 @@ def _render_appendix(pdf, scan_data: dict):
             for d in disc:
                 body(f"  - /{d['path']}  [{d['reason']}]")
 
-        redirects = (web.get("redirects", {}) or {}).get("chain", [])
-        if redirects:
-            body(f"\nRedirect chain ({len(redirects)} hops):")
-            for r in redirects:
+        redirects = web.get("redirects", {}) or {}
+        chain = redirects.get("chain", [])
+        if chain:
+            body(f"\nRedirect chain ({len(chain)} hops):")
+            for r in chain:
                 body(f"  {r['status']}  {r['url']}")
+        # Accuracy transparency: show the explicit redirect probe result so a
+        # reader can verify any 'No HTTP -> HTTPS redirect' claim (or its
+        # absence) against the raw status/Location.
+        if redirects.get("redirect_status") is not None:
+            verdict = ("upgrades to HTTPS"
+                       if redirects.get("upgrades_to_https")
+                       else "does NOT upgrade to HTTPS")
+            body(f"Explicit redirect probe (allow_redirects=False): "
+                 f"{redirects['redirect_status']}"
+                 + (f" Location: {redirects['location']}"
+                    if redirects.get("location") else "")
+                 + f" — {verdict}.")
+        if redirects.get("note"):
+            body(f"Note: {redirects['note']}")
 
     # ---------- DNS ----------
     dns = scan_data.get("dns", {}) or {}

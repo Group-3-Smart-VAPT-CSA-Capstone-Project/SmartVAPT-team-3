@@ -16,6 +16,7 @@ import requests
 
 from evidence import EvidenceStore
 from findings import Finding
+from command_tracker import run_logged
 
 # Common subdomain prefixes for DNS brute-forcing (kept small & polite)
 DEFAULT_PREFIXES = [
@@ -187,8 +188,8 @@ class SubdomainScanner:
         try:
             if progress_cb:
                 progress_cb("[recon] Running subfinder...")
-            proc = subprocess.run(["subfinder", "-d", self.domain, "-silent"],
-                                  capture_output=True, text=True, timeout=120)
+            proc = run_logged(["subfinder", "-d", self.domain, "-silent"],
+                              popen=False, timeout=120)
             return [h.strip().lower() for h in proc.stdout.splitlines() if h.strip()]
         except Exception as e:
             if progress_cb:

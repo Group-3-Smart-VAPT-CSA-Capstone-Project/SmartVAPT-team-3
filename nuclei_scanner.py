@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from findings import Finding
 from evidence import EvidenceStore
+from command_tracker import run_logged
 
 SEVERITY_MAP = {
     "critical": "critical", "high": "high", "medium": "medium",
@@ -57,9 +58,8 @@ class NucleiScanner:
 
         lines: List[str] = []
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT, text=True,
-                                    bufsize=1)
+            proc = run_logged(cmd, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT)
             assert proc.stdout is not None
             for line in proc.stdout:
                 if stop_flag and stop_flag.get("stop"):

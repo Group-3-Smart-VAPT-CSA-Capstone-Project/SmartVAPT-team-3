@@ -2,6 +2,71 @@
 from typing import Optional, Dict, List
 
 # ----------------------------------------------------------------------
+# CVE context tagging (server / client / config-dependent)
+# ----------------------------------------------------------------------
+# Banner-based matching (nmap vulners NSE) reports every CVE that *could*
+# apply to an advertised version string. Many well-known IDs are actually
+# client-side or configuration-dependent issues that cannot be exploited
+# against a listening server as such — scoring them at 9.x "critical" with
+# the attack path "Direct exploitation of the vulnerable service" is
+# inaccurate. Tag each known ID with its real attack surface so reports can
+# label it and stop counting it as a directly-exploitable server flaw.
+CVE_CLIENT_IDS = {
+    # --- OpenSSH client-side ------------------------------------------------
+    "CVE-2023-38408": ("client", "libssh agent forwarding: exploitable only when "
+                       "ssh-agent forwarding is used against an untrusted server"),
+    "CVE-2023-28531": ("client", "libssh smartcard ssh-add PKCS#11 handling"),
+    "CVE-2023-51385": ("client", "OpenSSH/termios terminal escape injection via "
+                       "a malicious SSH server (client side)"),
+    "CVE-2023-48795": ("protocol", "Terrapin prefix-truncation; requires BOTH peer "
+                       "and local attacker position or downgrade — affects client "
+                       "and server channels"),
+    "CVE-2025-26465": ("client", "GSS-API/KRB memory leak in ssh client authentication"),
+    "CVE-2020-15778": ("client", "Command injection via tmux control mode, requires "
+                       "authorized_keys command forcing on the CLIENT host"),
+    "CVE-2019-6111": ("client", "scp client symlink race during download"),
+    "CVE-2019-6110": ("client", "scp client TOCTOU/symlink following"),
+    "CVE-2021-28041": ("config", "AuthorizedKeysCommand fetched over ssh:// without "
+                        "host-key verification (depends on server config)"),
+    "CVE-2023-51767": ("client", "libssh client handshake state confusion"),
+    "CVE-2023-6004": ("client", "libssh client-side KEX fuzzing issue"),
+    "CVE-2016-1908": ("client", "SSH client X11 SECURITY extension escaping"),
+    "CVE-2016-0778": ("client", "libssh agent spoofing information disclosure"),
+    "CVE-2016-0779": ("client", "libssh agent double-free DoS"),
+    "CVE-2015-8325": ("client", "ssh-copy-id rogue-server shell injection (client)"),
+    "CVE-2015-5352": ("client", "SSH client tunnel restriction bypass"),
+    "CVE-2016-6210": ("server-config", "sshd regex DoS only when Match User/group "
+                      "directives are configured"),
+    "CVE-2024-6387": ("server", "regreSSHion: signal-handler race in sshd(8), "
+                      "Ubuntu/LTS builds ship distro backport patches"),
+}
+
+
+def cve_context(cve_id: str):
+    """Return (surface, note) for a known CVE id, else (None, None)."""
+    return CVE_CLIENT_IDS.get(str(cve_id or "").upper(), (None, None))
+
+
+def tag_cve_findings(findings: List[dict]) -> List[dict]:
+    """Attach 'cve_surface' ('server'|'client'|'config'|'protocol') and a
+    short 'cve_note' to network CVE findings based on the known-ID table.
+    Unknown ids default to 'server' (the conservative assumption for a
+    banner-matched finding on a listening port)."""
+    for f in findings:
+        if not f.get("cve"):
+            continue
+        surface, note = cve_context(f["cve"])
+        f["cve_surface"] = surface or "server"
+        if note:
+            f["cve_note"] = note
+        elif str(f.get("evidence") or "").lower().find("banner") >= 0 or \
+                f.get("cvss_vector") in (None, ""):
+            f.setdefault("cve_note", "Banner/version-match only — not "
+                                     "confirmed by an active check.")
+    return findings
+
+
+# ----------------------------------------------------------------------
 # CVSS v3.1 vector parsing / scoring
 # ----------------------------------------------------------------------
 _AVI = {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.20}
@@ -144,6 +209,20 @@ _PLAYBOOKS: Dict[str, Dict] = {
                     "TXT _dmarc: \"v=DMARC1; p=none; rua=mailto:dmarc@<domain>\""],
         },
     },
+    "https_redirect": {
+        "owasp": "A02:2021 - Cryptographic Failures",
+        "steps": [
+            "Confirm the host serves TLS on 443 (otherwise the redirect is not applicable).",
+            "Configure a permanent 301 redirect from HTTP to HTTPS at the web server.",
+            "Enable HSTS only after all clients reliably reach HTTPS.",
+        ],
+        "commands": {
+            "apache": ["RewriteEngine On",
+                       "RewriteCond %{HTTPS} off",
+                       "RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]"],
+            "nginx": ["server { listen 80; return 301 https://$host$request_uri; }"],
+        },
+    },
     "cve": {
         "owasp": "A06:2021 - Vulnerable and Outdated Components",
         "steps": [
@@ -176,6 +255,11 @@ _PLAYBOOKS: Dict[str, Dict] = {
 
 _KEYWORD_MAP = [
     (("security header",), "missing_header"),
+    # Must precede the generic ("https",) tls rule below: the redirect
+    # finding is about a missing 301 upgrade, NOT weak ciphers — the scan
+    # never tested cipher suites, so routing it to the "tls" playbook gave
+    # inaccurate attack paths/remediation (SWEET32/BEAST class issues).
+    (("redirect",), "https_redirect"),
     (("sensitive", "path exposed", "publicly accessible", ".env", ".git"), "sensitive_path"),
     (("tls", "certificate", "https"), "tls"),
     (("spf", "dmarc", "email"), "email_security"),
@@ -267,6 +351,16 @@ _EXPLOIT_GUIDES: Dict[str, Dict] = {
         ],
         "tools": ["dnsrecon", "nuclei (takeover templates)", "subjack"],
     },
+    "https_redirect": {
+        "difficulty": "Easy",
+        "attack_paths": ["SSL-stripping / plaintext credential capture on the HTTP port",
+                         "Cookie or token exposure to network observers (no TLS)"],
+        "verification": [
+            "curl -sI http://<target>/ | grep -iE '^HTTP/|^Location'   # expect 301 -> https://",
+            "openssl s_client -connect <host>:443   # confirm HTTPS endpoint exists first",
+        ],
+        "tools": ["curl", "browser dev-tools"],
+    },
     "default": {
         "difficulty": "Assessment required",
         "attack_paths": ["Manual review of evidence to determine reachable attack path."],
@@ -276,19 +370,37 @@ _EXPLOIT_GUIDES: Dict[str, Dict] = {
 }
 
 
-def exploit_guide_for(title: str, description: str = "") -> Dict:
+def exploit_guide_for(title: str, description: str = "",
+                      finding: Optional[dict] = None) -> Dict:
     """Return exploitation/verification guidance keyed off the same playbook
-    matcher used for remediation."""
+    matcher used for remediation. When the finding carries a CVE tag whose
+    attack surface is NOT the listening service (client-side, config- or
+    protocol-dependent), replace the generic 'Direct exploitation of the
+    vulnerable service' path with one that matches the actual check."""
     text = f"{title} {description}".lower()
+    guide = dict(_EXPLOIT_GUIDES["default"])
     for keywords, name in _KEYWORD_MAP:
         if any(k in text for k in keywords):
-            return dict(_EXPLOIT_GUIDES.get(name, _EXPLOIT_GUIDES["default"]))
-    return dict(_EXPLOIT_GUIDES["default"])
+            guide = dict(_EXPLOIT_GUIDES.get(name, _EXPLOIT_GUIDES["default"]))
+            break
+    if finding and finding.get("cve"):
+        surface = finding.get("cve_surface") or "server"
+        note = finding.get("cve_note", "")
+        if surface != "server":
+            guide["attack_paths"] = [
+                f"{surface.capitalize()}-side issue — not directly exploitable "
+                f"against the listening service ({note})" if note else
+                f"{surface.capitalize()}-side issue — not directly exploitable "
+                "against the listening service"]
+            guide["difficulty"] = "Context-dependent"
+            guide["tools"] = ["CVE advisory / distro CVE tracker", "manual review"]
+    return guide
 
 
 def enrich_findings(findings: List[dict]) -> List[dict]:
     """Attach cvss_score (if vector available), normalized severity and a
     remediation playbook to each finding dict. Mutates and returns the list."""
+    tag_cve_findings(findings)
     for f in findings:
         vec = f.get("cvss_vector")
         if vec and f.get("cvss") in (None, 0):
@@ -300,6 +412,21 @@ def enrich_findings(findings: List[dict]) -> List[dict]:
                 f["severity"] = severity_from_cvss(float(f["cvss"]))
             except (TypeError, ValueError):
                 pass
+        # Banner-matched CVEs are hypotheses, not confirmed vulnerabilities.
+        # Client/config/protocol-surface CVEs additionally cannot be scored
+        # as direct server risk; cap them at 'medium' and mark unconfirmed.
+        if f.get("cve"):
+            if not f.get("confirmed"):
+                f["confirmed"] = False
+                f.setdefault("confidence", "unconfirmed (banner-based)")
+            if f.get("cve_surface") not in (None, "server"):
+                from findings import SEVERITY_ORDER
+                if SEVERITY_ORDER.get(str(f.get("severity", "")).lower(), 0) \
+                        > SEVERITY_ORDER["medium"]:
+                    f["severity"] = "medium"
+                    f["severity_downgrade_reason"] = (
+                        f"CVE is {f['cve_surface']}-surface, not a directly "
+                        "exploitable server flaw")
         if not f.get("remediation_steps"):
             pb = playbook_for(f.get("title", ""), f.get("description", ""))
             f["remediation_steps"] = pb["steps"]
@@ -309,5 +436,6 @@ def enrich_findings(findings: List[dict]) -> List[dict]:
         # Ethical-use note: these are safe VERIFICATION steps for use inside
         # the signed scope of a penetration test — not weaponised exploits.
         f["exploitation"] = exploit_guide_for(f.get("title", ""),
-                                              f.get("description", ""))
+                                              f.get("description", ""),
+                                              finding=f)
     return findings

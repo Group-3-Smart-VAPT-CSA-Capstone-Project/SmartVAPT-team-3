@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Callable, Optional
 from findings import Finding
 from evidence import EvidenceStore
 from portsets import PORT_SETS, normalize_ports, port_arg_tokens
+from command_tracker import run_logged
 
 
 # Service names / products that indicate an HTTP-speaking port (nmap -sV).
@@ -188,9 +189,10 @@ class NetworkScanner:
         cmd += port_arg_tokens(ports)
         cmd += ["-oX", xml_path, self.target]
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.PIPE, text=True,
-                                    bufsize=1)
+            # Announced in the command tracker so the live scan output can
+            # show "nmap running on <target>" while the process is alive.
+            proc = run_logged(cmd, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.PIPE)
         except FileNotFoundError:
             os.unlink(xml_path)
             raise
@@ -237,27 +239,75 @@ class NetworkScanner:
                         continue
                     results["summary"]["open_ports"] += 1
                     cves = self._extract_cves(info)
+                    banner = " ".join(str(info.get(k) or "") for k in
+                                      ("product", "version", "extrainfo")).strip()
+                    distro_patched = self._distro_backport_reliable(banner)
                     for cve in cves:
+                        # Ubuntu/Debian ship distro builds that backport
+                        # security fixes without bumping the upstream version
+                        # string, so banner matching over-reports. A high
+                        # revision (e.g. OpenSSH ...ubuntu0.17) means many
+                        # CVEs — regreSSHion CVE-2024-6387 among them — are
+                        # already patched. Label such matches unconfirmed.
+                        unconfirmed = True  # banner match unless CVSS vector present AND not a distro-backport build
+                        if cve.get("vector") and not distro_patched:
+                            unconfirmed = False
+                        note = cve.get("note") or ""
+                        if distro_patched:
+                            note = ((note + "; ") if note else "") + \
+                                ("banner is a distro build with backported "
+                                 "security patches — check Ubuntu CVE "
+                                 "tracker (ubuntu.com/security/cves) / USN "
+                                 "data before treating as vulnerable")
                         sev = cve["severity"]
                         results["summary"][sev] += 1
                         results["summary"]["total_cves"] += 1
                         finding_idx += 1
-                        results["findings"].append(Finding(
+                        f = Finding(
                             id=f"NET-{finding_idx:03d}", vector="network",
-                            title=f"{cve['id']} on {info.get('name')} port {port}",
+                            title=f"{cve['id']} on {info.get('name')} port {port}"
+                                  + (" [unconfirmed]" if unconfirmed else ""),
                             severity=sev,
-                            description=f"{info.get('product','')} {info.get('version','')} on port {port}/{proto} is vulnerable to {cve['id']}.",
+                            description=(f"{info.get('product','')} "
+                                         f"{info.get('version','')} on port "
+                                         f"{port}/{proto} matches advisory "
+                                         f"range for {cve['id']}"
+                                         + (" (banner-based match — not "
+                                            "confirmed by an active check)"
+                                            if unconfirmed else
+                                            " per its CVSS vector")),
                             evidence=cve["raw"], cve=cve["id"], cvss=cve["cvss"],
                             cvss_vector=cve.get("vector"),
                             target=host, port=port, service=info.get("name"),
                             remediation=self._remediation_for(cve["id"]),
-                        ).to_dict())
+                        ).to_dict()
+                        f["confirmed"] = not unconfirmed
+                        if unconfirmed:
+                            f["confidence"] = "unconfirmed (banner-based)"
+                        if note:
+                            f["cve_note"] = note
+                        results["findings"].append(f)
                     host_data["ports"].append({
                         "port": port, "protocol": proto, "service": info.get("name"),
                         "product": info.get("product"), "version": info.get("version"),
-                        "extrainfo": info.get("extrainfo"), "cves": cves})
+                        "extrainfo": info.get("extrainfo"), "cves": cves,
+                        "banner": banner,
+                        "distro_backport_banner": distro_patched})
             results["hosts"].append(host_data)
         return results
+
+    @staticmethod
+    def _distro_backport_reliable(banner: str) -> bool:
+        """True when a service banner looks like a Linux-distro build whose
+        packaging revision indicates regular security backports (e.g.
+        'OpenSSH 8.9p1 Ubuntu 3ubuntu0.17'). Such banners make vulners'
+        version-range matching unreliable."""
+        b = banner.lower()
+        if "ubuntu" in b and re.search(r"ubuntu\s*\d", b):
+            return True
+        if "debian" in b or "-deb" in b:
+            return True
+        return False
 
     def _extract_cves(self, port_info: Dict) -> List[Dict]:
         cves = []
@@ -309,4 +359,19 @@ class NetworkScanner:
 
     @staticmethod
     def _remediation_for(cve: str) -> str:
-        return f"Upgrade the affected service to a patched version. Reference: https://nvd.nist.gov/vuln/detail/{cve}"
+        surface, _ = None, None
+        try:
+            from scoring import cve_context
+            surface = cve_context(cve)[0]
+        except Exception:
+            pass
+        if surface and surface != "server":
+            return (f"{cve} is a {surface}-side/configuration-dependent issue, "
+                    "not a directly exploitable flaw in the listening service. "
+                    "Confirm against the distro CVE tracker before patching; "
+                    "if clients are affected, upgrade local SSH tooling instead. "
+                    f"Reference: https://nvd.nist.gov/vuln/detail/{cve}")
+        return (f"Upgrade the affected service to a patched version — or, for "
+                f"distro builds, confirm the fix status on the Ubuntu CVE "
+                f"tracker (backports may already cover it). Reference: "
+                f"https://nvd.nist.gov/vuln/detail/{cve}")

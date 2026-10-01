@@ -1,7 +1,8 @@
 import subprocess, re, ssl, socket, requests, dns.resolver, os, shutil
+from command_tracker import run_logged
 import hashlib, secrets
 from datetime import datetime, timezone
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from typing import Dict, List, Any, Optional
 from findings import Finding
 from evidence import EvidenceStore
@@ -341,9 +342,8 @@ class WebScanner:
         try:
             if progress_cb is not None:
                 # Real-time mode: stream each discovered path as it appears.
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                        stderr=subprocess.STDOUT, text=True,
-                                        bufsize=1)
+                proc = run_logged(cmd, stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT)
                 lines = []
                 for line in proc.stdout:
                     lines.append(line)
@@ -677,16 +677,53 @@ class WebScanner:
         return result
 
     def analyze_redirects(self) -> Dict[str, Any]:
+        """Verify the HTTP -> HTTPS upgrade with an explicit (non-followed)
+        request so the finding reflects what the server actually returns.
+
+        False-positive history: following redirects could end on an https://
+        page while history was empty (e.g. HSTS-in-browser assumptions never
+        apply here, but a 200-on-http scan target whose *final* URL looked
+        like https elsewhere led to "No HTTP -> HTTPS redirect" being raised
+        even though Appendix C showed 301 http://... -> 200 https://...).
+        The check now issues GET with allow_redirects=False and raises the
+        finding ONLY when the response is neither a 3xx carrying an
+        https:// Location nor already an https:// response.
+        """
         result = {"chain": [], "findings": []}
         try:
-            r = requests.get(self.target, timeout=self.timeout, allow_redirects=True,
-                         headers=self.auth_headers or None)
+            # --- Primary accuracy probe: single hop, no following ---------
+            direct = requests.get(self.target, timeout=self.timeout,
+                                  allow_redirects=False,
+                                  headers=self.auth_headers or None)
+            loc = direct.headers.get("Location") or ""
+            # A redirect counts as an HTTPS upgrade when its resolved target
+            # is https:// (absolute, scheme-relative, or relative-to-https).
+            loc_https = False
+            if direct.status_code in (301, 302, 303, 307, 308) and loc:
+                resolved = urlparse(urljoin(self.target, loc))
+                loc_https = (resolved.scheme == "https" or
+                             (not resolved.scheme and self.tls_available()))
+            upgraded = bool((direct.status_code in (301, 302, 303, 307, 308)
+                             and loc_https)
+                            or direct.url.startswith("https://"))
+            result["redirect_status"] = direct.status_code
+            result["location"] = loc or None
+            result["upgrades_to_https"] = upgraded
+
+            # --- Full chain (informational / evidence) --------------------
+            r = requests.get(self.target, timeout=self.timeout,
+                             allow_redirects=True,
+                             headers=self.auth_headers or None)
             for h in r.history:
                 result["chain"].append({"status": h.status_code, "url": h.url,
                                         "location": h.headers.get("Location")})
-            result["chain"].append({"status": r.status_code, "url": r.url, "location": None})
-            if self.target.startswith("http://") and not any(
-                    h.url.startswith("https://") for h in r.history):
+            result["chain"].append({"status": r.status_code, "url": r.url,
+                                    "location": None})
+            if any(h.url.startswith("https://") for h in r.history):
+                upgraded = True
+                result["upgrades_to_https"] = True
+
+            if self.target.startswith("http://") and not upgraded:
                 # Accuracy check: only report a missing redirect when the host
                 # actually serves TLS on 443. If HTTPS is unavailable, flagging
                 # 'no redirect' would be misleading — note it instead.
@@ -694,8 +731,13 @@ class WebScanner:
                     result["findings"].append(self._mk_finding(
                         id=self._next_id(), vector="web",
                         title="No HTTP -> HTTPS redirect", severity="high",
-                        description="Plain HTTP is served without redirecting to HTTPS.",
-                        evidence=f"Final URL: {r.url}",
+                        description=(
+                            f"{self.target} responds {direct.status_code} and "
+                            "does not redirect to an HTTPS location."
+                        ),
+                        evidence=(f"GET {self.target} (allow_redirects=False)"
+                                  f" -> {direct.status_code}"
+                                  + (f", Location: {loc}" if loc else "")),
                         owasp="A02:2021 - Cryptographic Failures",
                         target=self.target,
                         remediation="Configure 301 redirect from HTTP to HTTPS.",
@@ -705,6 +747,10 @@ class WebScanner:
                     result["note"] = ("Host does not serve TLS on port 443; "
                                       "HTTPS-redirect finding suppressed as "
                                       "not applicable.")
+            elif upgraded:
+                result["note"] = (f"HTTP -> HTTPS redirect verified: "
+                                  f"{direct.status_code} "
+                                  f"Location: {loc or r.url}")
             if self.evidence:
                 self.evidence.save_json("redirect_chain", result["chain"])
         except requests.RequestException as e:
