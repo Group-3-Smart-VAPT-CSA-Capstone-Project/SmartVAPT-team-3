@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Callable, Optional
 from findings import Finding
 from evidence import EvidenceStore
 from portsets import PORT_SETS, normalize_ports, port_arg_tokens
+from command_tracker import run_logged
 
 
 # Service names / products that indicate an HTTP-speaking port (nmap -sV).
@@ -188,9 +189,10 @@ class NetworkScanner:
         cmd += port_arg_tokens(ports)
         cmd += ["-oX", xml_path, self.target]
         try:
-            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.PIPE, text=True,
-                                    bufsize=1)
+            # Announced in the command tracker so the live scan output can
+            # show "nmap running on <target>" while the process is alive.
+            proc = run_logged(cmd, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.PIPE)
         except FileNotFoundError:
             os.unlink(xml_path)
             raise

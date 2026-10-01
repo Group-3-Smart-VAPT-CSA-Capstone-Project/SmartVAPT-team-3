@@ -169,6 +169,61 @@ def main():
         except Exception as e:
             results["api"] = {"error": str(e)}
 
+    # ---- Ubuntu backport-aware CVE validation (smartvapt_fixes) ----
+    # Banner-matched CVEs on distro builds are hypotheses: cross-check each
+    # one against Ubuntu's security tracker and demote/exclude patched ones.
+    patched_cves, validated_counts = [], {}
+    net = results.get("network") or {}
+    ssh_banner = ""
+    for host in net.get("hosts", []) or []:
+        for p in host.get("ports", []) or []:
+            if str(p.get("service", "")).lower().startswith("ssh") and p.get("banner"):
+                ssh_banner = str(p["banner"])
+                break
+        if ssh_banner:
+            break
+    if not ssh_banner:
+        lo = net.get("nmap_last_output") or net.get("raw_output") or ""
+        for line in str(lo).splitlines():
+            if "SSH-" in line and "OpenSSH" in line:
+                ssh_banner = line.strip()
+                break
+    cve_fs = [f for f in findings.list() if getattr(f, "cve", None)]
+    if ssh_banner and cve_fs:
+        print(f"[*] Validating {len(cve_fs)} banner-matched CVEs against "
+              "Ubuntu security data...")
+        try:
+            import smartvapt_fixes as sf
+            dicts = [f.to_dict() for f in cve_fs]
+            buckets = sf.apply_validations(dicts, ssh_banner)
+            validated_counts = {k: len(v) for k, v in buckets.items()}
+            patched_cves = sorted({f["cve"] for f in buckets["patched"]})
+            keep = {id(f) for k in ("vulnerable", "unconfirmed")
+                    for f in buckets[k]}
+            patched_ids = {id(f) for f in buckets["patched"]}
+            for f, d in zip(cve_fs, dicts):
+                if id(d) in patched_ids:
+                    findings.remove(f.id)
+                else:
+                    for attr in ("severity", "confidence", "cve_surface",
+                                 "cve_note", "ubuntu_validation",
+                                 "severity_downgrade_reason"):
+                        if d.get(attr) is not None:
+                            setattr(f, attr, d[attr])
+            results["ssh_banner"] = ssh_banner
+            results["cve_validation"] = {
+                "banner": ssh_banner,
+                "release": __import__("smartvapt_fixes"
+                                      ).ubuntu_release_for_banner(ssh_banner),
+                "counts": validated_counts,
+                "patched": patched_cves,
+            }
+            print(f"    -> patched: {validated_counts.get('patched', 0)}, "
+                  f"vulnerable: {validated_counts.get('vulnerable', 0)}, "
+                  f"unconfirmed: {validated_counts.get('unconfirmed', 0)}")
+        except Exception as e:
+            print(f"[!] CVE validation skipped: {e}")
+
     print("[*] Scoring / enrichment...")
     enriched = enrich_findings(findings.to_dict_list())
     results["findings"] = enriched

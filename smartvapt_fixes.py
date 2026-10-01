@@ -126,7 +126,9 @@ def parse_openssh_banner(banner: str) -> Optional[Dict[str, object]]:
     # needed for a meaningful dpkg comparison.
     base, revb = m.group("rev"), m.group("revb")
     if base:
-        deb_rev = f"{base}ubuntu{('.' + revb) if revb else ''}"
+        # The banner tail '3ubuntu0.17' splits as rev='3', revb='0.17';
+        # rejoin WITHOUT inserting an extra dot (the '.' belongs to revb).
+        deb_rev = f"{base}ubuntu{revb}" if revb else f"{base}ubuntu"
     else:
         deb_rev = ""
     rev_tail = revb or ""
@@ -574,13 +576,38 @@ def apply_validations(findings: List[dict], banner: str,
             f["severity"] = "info"
             f["severity_downgrade_reason"] = v["detail"]
             buckets["patched"].append(f)
-        elif v["status"] == "vulnerable":
-            f["confidence"] = "likely (Ubuntu tracker confirms unfixed)"
-            f["confirmed"] = False
-            buckets["vulnerable"].append(f)
         else:
-            f["confidence"] = "unconfirmed (banner-based)"
             f["confirmed"] = False
-            adjust_severity(f)
-            buckets["unconfirmed"].append(f)
+            # Re-derive the surface tag BEFORE demoting so client/config
+            # CVEs get both caps applied.
+            if not f.get("cve_surface"):
+                try:
+                    from scoring import cve_context as _ctx
+                except ImportError:
+                    _ctx = None
+                if _ctx:
+                    surf, note = _ctx(f["cve"])
+                    if surf:
+                        f["cve_surface"] = surf
+                    if note and not f.get("cve_note"):
+                        f["cve_note"] = note
+            vstat = v["status"]
+            if vstat == "vulnerable":
+                f["confidence"] = "likely (Ubuntu tracker confirms unfixed)"
+                # Vendor-confirmed unfixed: keep the CVSS severity for
+                # server-surface CVEs, but client/config/protocol-surface
+                # flaws are never direct server risk — cap at medium.
+                if f.get("cve_surface") not in (None, "server"):
+                    from findings import SEVERITY_ORDER
+                    if SEVERITY_ORDER.get(str(f.get("severity", "")).lower(), 0) \
+                            > SEVERITY_ORDER["medium"]:
+                        f["severity"] = "medium"
+                        f["severity_downgrade_reason"] = (
+                            f"CVE is {f['cve_surface']}-surface, not a "
+                            "directly exploitable server flaw")
+                buckets["vulnerable"].append(f)
+            else:
+                f["confidence"] = "unconfirmed (banner-based)"
+                adjust_severity(f)
+                buckets["unconfirmed"].append(f)
     return buckets

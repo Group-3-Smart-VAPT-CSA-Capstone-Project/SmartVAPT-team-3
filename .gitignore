@@ -1,10 +1,11 @@
-# Python bytecode and caches
+# Python
 __pycache__/
 *.pyc
-
-# Virtual environments
 venv/
-.venv/
 
 # Logs
 *.log
+
+# Build artifacts / Generated reports
+SmartVAPT_*.pdf
+results_*.json

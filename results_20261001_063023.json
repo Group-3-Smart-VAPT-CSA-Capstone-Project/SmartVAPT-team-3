@@ -1,0 +1,696 @@
+{
+  "results": {
+    "target": "scanme.nmap.org",
+    "scan_id": "20261001_063023",
+    "network": {
+      "error": "[Errno 2] No such file or directory: 'nmap'"
+    },
+    "web": {
+      "headers": {
+        "url": "http://scanme.nmap.org",
+        "missing": [
+          "Strict-Transport-Security",
+          "Content-Security-Policy",
+          "X-Frame-Options",
+          "X-Content-Type-Options",
+          "Referrer-Policy",
+          "Permissions-Policy"
+        ],
+        "present": [],
+        "server": "Apache/2.4.7 (Ubuntu)",
+        "findings": [
+          {
+            "id": "WEB-001",
+            "vector": "web",
+            "title": "Missing security header: Strict-Transport-Security",
+            "severity": "medium",
+            "description": "The HTTP response does not set Strict-Transport-Security.",
+            "evidence": "GET http://scanme.nmap.org -> no 'Strict-Transport-Security' header",
+            "cve": null,
+            "cvss": null,
+            "owasp": "A05:2021 - Security Misconfiguration",
+            "target": "http://scanme.nmap.org",
+            "port": 80,
+            "service": "http",
+            "confirmed": null,
+            "confidence": null,
+            "cve_surface": null,
+            "cve_note": null,
+            "severity_downgrade_reason": null,
+            "remediation": "Add 'Strict-Transport-Security' to web server configuration.",
+            "cvss_vector": null,
+            "remediation_steps": null,
+            "remediation_commands": null,
+            "timestamp": "2026-10-01T06:30:28.281896+00:00"
+          },
+          {
+            "id": "WEB-002",
+            "vector": "web",
+            "title": "Missing security header: Content-Security-Policy",
+            "severity": "medium",
+            "description": "The HTTP response does not set Content-Security-Policy.",
+            "evidence": "GET http://scanme.nmap.org -> no 'Content-Security-Policy' header",
+            "cve": null,
+            "cvss": null,
+            "owasp": "A05:2021 - Security Misconfiguration",
+            "target": "http://scanme.nmap.org",
+            "port": 80,
+            "service": "http",
+            "confirmed": null,
+            "confidence": null,
+            "cve_surface": null,
+            "cve_note": null,
+            "severity_downgrade_reason": null,
+            "remediation": "Add 'Content-Security-Policy' to web server configuration.",
+            "cvss_vector": null,
+            "remediation_steps": null,
+            "remediation_commands": null,
+            "timestamp": "2026-10-01T06:30:28.281959+00:00"
+          },
+          {
+            "id": "WEB-003",
+            "vector": "web",
+            "title": "Missing security header: X-Frame-Options",
+            "severity": "medium",
+            "description": "The HTTP response does not set X-Frame-Options.",
+            "evidence": "GET http://scanme.nmap.org -> no 'X-Frame-Options' header",
+            "cve": null,
+            "cvss": null,
+            "owasp": "A05:2021 - Security Misconfiguration",
+            "target": "http://scanme.nmap.org",
+            "port": 80,
+            "service": "http",
+            "confirmed": null,
+            "confidence": null,
+            "cve_surface": null,
+            "cve_note": null,
+            "severity_downgrade_reason": null,
+            "remediation": "Add 'X-Frame-Options' to web server configuration.",
+            "cvss_vector": null,
+            "remediation_steps": null,
+            "remediation_commands": null,
+            "timestamp": "2026-10-01T06:30:28.281979+00:00"
+          },
+          {
+            "id": "WEB-004",
+            "vector": "web",
+            "title": "Missing security header: X-Content-Type-Options",
+            "severity": "medium",
+            "description": "The HTTP response does not set X-Content-Type-Options.",
+            "evidence": "GET http://scanme.nmap.org -> no 'X-Content-Type-Options' header",
+            "cve": null,
+            "cvss": null,
+            "owasp": "A05:2021 - Security Misconfiguration",
+            "target": "http://scanme.nmap.org",
+            "port": 80,
+            "service": "http",
+            "confirmed": null,
+            "confidence": null,
+            "cve_surface": null,
+            "cve_note": null,
+            "severity_downgrade_reason": null,
+            "remediation": "Add 'X-Content-Type-Options' to web server configuration.",
+            "cvss_vector": null,
+            "remediation_steps": null,
+            "remediation_commands": null,
+            "timestamp": "2026-10-01T06:30:28.281995+00:00"
+          },
+          {
+            "id": "WEB-005",
+            "vector": "web",
+            "title": "Missing security header: Referrer-Policy",
+            "severity": "medium",
+            "description": "The HTTP response does not set Referrer-Policy.",
+            "evidence": "GET http://scanme.nmap.org -> no 'Referrer-Policy' header",
+            "cve": null,
+            "cvss": null,
+            "owasp": "A05:2021 - Security Misconfiguration",
+            "target": "http://scanme.nmap.org",
+            "port": 80,
+            "service": "http",
+            "confirmed": null,
+            "confidence": null,
+            "cve_surface": null,
+            "cve_note": null,
+            "severity_downgrade_reason": null,
+            "remediation": "Add 'Referrer-Policy' to web server configuration.",
+            "cvss_vector": null,
+            "remediation_steps": null,
+            "remediation_commands": null,
+            "timestamp": "2026-10-01T06:30:28.282009+00:00"
+          },
+          {
+            "id": "WEB-006",
+            "vector": "web",
+            "title": "Missing security header: Permissions-Policy",
+            "severity": "medium",
+            "description": "The HTTP response does not set Permissions-Policy.",
+            "evidence": "GET http://scanme.nmap.org -> no 'Permissions-Policy' header",
+            "cve": null,
+            "cvss": null,
+            "owasp": "A05:2021 - Security Misconfiguration",
+            "target": "http://scanme.nmap.org",
+            "port": 80,
+            "service": "http",
+            "confirmed": null,
+            "confidence": null,
+            "cve_surface": null,
+            "cve_note": null,
+            "severity_downgrade_reason": null,
+            "remediation": "Add 'Permissions-Policy' to web server configuration.",
+            "cvss_vector": null,
+            "remediation_steps": null,
+            "remediation_commands": null,
+            "timestamp": "2026-10-01T06:30:28.282023+00:00"
+          }
+        ],
+        "error": null
+      },
+      "technologies": {
+        "technologies": [
+          {
+            "name": "Apache/2.4.7 (Ubuntu)",
+            "via": "header:Server"
+          }
+        ],
+        "count": 1
+      },
+      "directories": {
+        "target": "http://scanme.nmap.org",
+        "found": [],
+        "findings": [],
+        "error": "Wordlist not found: /usr/share/wordlists/dirb/common.txt"
+      },
+      "tls": {
+        "enabled": false,
+        "note": "Target not using HTTPS",
+        "findings": []
+      },
+      "robots_sitemap": {
+        "robots": null,
+        "sitemap": null,
+        "disallowed": [],
+        "findings": []
+      },
+      "sensitive_paths": {
+        "found": [],
+        "findings": [],
+        "discarded": [],
+        "soft404_baseline": {
+          "detected": false,
+          "probed": 3,
+          "returned_200": 0,
+          "body_size": null,
+          "body_sha256": null,
+          "title": null,
+          "note": "Server returns proper error codes for non-existent paths; no soft-404 baseline needed."
+        }
+      },
+      "redirects": {
+        "chain": [
+          {
+            "status": 200,
+            "url": "http://scanme.nmap.org/",
+            "location": null
+          }
+        ],
+        "findings": [],
+        "redirect_status": 200,
+        "location": null,
+        "upgrades_to_https": false,
+        "tls_unavailable": true,
+        "note": "Host does not serve TLS on port 443; HTTPS-redirect finding suppressed as not applicable."
+      }
+    },
+    "dns": {
+      "domain": "scanme.nmap.org",
+      "spf": {
+        "present": false,
+        "record": null,
+        "error": "The DNS response does not contain an answer to the question: scanme.nmap.org. IN TXT"
+      },
+      "dmarc": {
+        "present": false,
+        "record": null,
+        "error": "The DNS query name does not exist: _dmarc.scanme.nmap.org."
+      },
+      "findings": [
+        "Finding(id='DNS-001', vector='dns', title='Missing SPF record', severity='high', description='scanme.nmap.org has no SPF TXT record.', evidence='The DNS response does not contain an answer to the question: scanme.nmap.org. IN TXT', cve=None, cvss=None, owasp='A07:2021 - Identification and Authentication Failures', target='scanme.nmap.org', port=None, service=None, confirmed=None, confidence=None, cve_surface=None, cve_note=None, severity_downgrade_reason=None, remediation='Publish an SPF record listing authorized senders.', cvss_vector=None, remediation_steps=None, remediation_commands=None, timestamp='2026-10-01T06:30:35.514505+00:00')",
+        "Finding(id='DNS-002', vector='dns', title='Missing DMARC record', severity='high', description='_dmarc.scanme.nmap.org has no DMARC record.', evidence='The DNS query name does not exist: _dmarc.scanme.nmap.org.', cve=None, cvss=None, owasp='A07:2021 - Identification and Authentication Failures', target='scanme.nmap.org', port=None, service=None, confirmed=None, confidence=None, cve_surface=None, cve_note=None, severity_downgrade_reason=None, remediation='Publish DMARC with p=none first, then quarantine/reject.', cvss_vector=None, remediation_steps=None, remediation_commands=None, timestamp='2026-10-01T06:30:35.514525+00:00')"
+      ]
+    },
+    "nuclei": {
+      "target": "http://scanme.nmap.org",
+      "available": false,
+      "matched": [],
+      "findings": [],
+      "error": "nuclei binary not found. Install it: sudo apt install nuclei  (or download from https://github.com/projectdiscovery/nuclei)"
+    },
+    "findings": [
+      {
+        "id": "DNS-001",
+        "vector": "dns",
+        "title": "Missing SPF record",
+        "severity": "high",
+        "description": "scanme.nmap.org has no SPF TXT record.",
+        "evidence": "The DNS response does not contain an answer to the question: scanme.nmap.org. IN TXT",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A07:2021 - Identification and Authentication Failures",
+        "target": "scanme.nmap.org",
+        "port": null,
+        "service": null,
+        "confirmed": null,
+        "confidence": null,
+        "cve_surface": null,
+        "cve_note": null,
+        "severity_downgrade_reason": null,
+        "remediation": "Publish an SPF record listing authorized senders.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Publish an SPF record listing authorized sending IPs/services.",
+          "Publish DMARC starting with p=none, monitor reports, then move to p=quarantine/reject.",
+          "Enforce MTA-STS and DNSSEC where supported by your registrar."
+        ],
+        "remediation_commands": {
+          "dns": [
+            "TXT @: \"v=spf1 ip4:<server-ip> include:_spf.<provider> -all\"",
+            "TXT _dmarc: \"v=DMARC1; p=none; rua=mailto:dmarc@<domain>\""
+          ]
+        },
+        "timestamp": "2026-10-01T06:30:35.514505+00:00",
+        "exploitation": {
+          "difficulty": "Easy",
+          "attack_paths": [
+            "Domain spoofing for phishing (no SPF/DMARC)",
+            "BEC campaigns using look-alike sender"
+          ],
+          "verification": [
+            "dig +short TXT <domain>            # expect v=spf1 ...",
+            "dig +short TXT _dmarc.<domain>     # expect v=DMARC1; p=...",
+            "Send a test email from an unauthorized host and observe lack of rejection."
+          ],
+          "tools": [
+            "dig",
+            "spfchecker",
+            "dmarcian validator"
+          ]
+        }
+      },
+      {
+        "id": "DNS-002",
+        "vector": "dns",
+        "title": "Missing DMARC record",
+        "severity": "high",
+        "description": "_dmarc.scanme.nmap.org has no DMARC record.",
+        "evidence": "The DNS query name does not exist: _dmarc.scanme.nmap.org.",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A07:2021 - Identification and Authentication Failures",
+        "target": "scanme.nmap.org",
+        "port": null,
+        "service": null,
+        "confirmed": null,
+        "confidence": null,
+        "cve_surface": null,
+        "cve_note": null,
+        "severity_downgrade_reason": null,
+        "remediation": "Publish DMARC with p=none first, then quarantine/reject.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Publish an SPF record listing authorized sending IPs/services.",
+          "Publish DMARC starting with p=none, monitor reports, then move to p=quarantine/reject.",
+          "Enforce MTA-STS and DNSSEC where supported by your registrar."
+        ],
+        "remediation_commands": {
+          "dns": [
+            "TXT @: \"v=spf1 ip4:<server-ip> include:_spf.<provider> -all\"",
+            "TXT _dmarc: \"v=DMARC1; p=none; rua=mailto:dmarc@<domain>\""
+          ]
+        },
+        "timestamp": "2026-10-01T06:30:35.514525+00:00",
+        "exploitation": {
+          "difficulty": "Easy",
+          "attack_paths": [
+            "Domain spoofing for phishing (no SPF/DMARC)",
+            "BEC campaigns using look-alike sender"
+          ],
+          "verification": [
+            "dig +short TXT <domain>            # expect v=spf1 ...",
+            "dig +short TXT _dmarc.<domain>     # expect v=DMARC1; p=...",
+            "Send a test email from an unauthorized host and observe lack of rejection."
+          ],
+          "tools": [
+            "dig",
+            "spfchecker",
+            "dmarcian validator"
+          ]
+        }
+      },
+      {
+        "id": "WEB-001",
+        "vector": "web",
+        "title": "Missing security header: Strict-Transport-Security",
+        "severity": "medium",
+        "description": "The HTTP response does not set Strict-Transport-Security.",
+        "evidence": "GET http://scanme.nmap.org -> no 'Strict-Transport-Security' header",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "target": "http://scanme.nmap.org",
+        "port": 80,
+        "service": "http",
+        "confirmed": null,
+        "confidence": null,
+        "cve_surface": null,
+        "cve_note": null,
+        "severity_downgrade_reason": null,
+        "remediation": "Add 'Strict-Transport-Security' to web server configuration.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Identify the web server / reverse proxy in front of the application.",
+          "Add the missing security header globally so every response carries it.",
+          "Verify with a re-scan that the header is present on all endpoints."
+        ],
+        "remediation_commands": {
+          "nginx": [
+            "add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;",
+            "add_header X-Frame-Options \"DENY\" always;",
+            "add_header X-Content-Type-Options \"nosniff\" always;"
+          ],
+          "apache": [
+            "Header always set Strict-Transport-Security \"max-age=31536000\"",
+            "Header always set X-Frame-Options \"DENY\"",
+            "Header always set X-Content-Type-Options \"nosniff\""
+          ]
+        },
+        "timestamp": "2026-10-01T06:30:28.281896+00:00",
+        "exploitation": {
+          "difficulty": "Informational",
+          "attack_paths": [
+            "Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
+            "MIME-confusion scripting (missing X-Content-Type-Options)",
+            "SSL-stripping (missing HSTS)"
+          ],
+          "verification": [
+            "curl -skI <url> | grep -iE 'strict-transport|content-security|x-frame|x-content-type'",
+            "Open the page inside an <iframe> on a test page to confirm framing is allowed."
+          ],
+          "tools": [
+            "curl",
+            "browser dev-tools",
+            "nuclei (-t http/headers/)"
+          ]
+        }
+      },
+      {
+        "id": "WEB-002",
+        "vector": "web",
+        "title": "Missing security header: Content-Security-Policy",
+        "severity": "medium",
+        "description": "The HTTP response does not set Content-Security-Policy.",
+        "evidence": "GET http://scanme.nmap.org -> no 'Content-Security-Policy' header",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "target": "http://scanme.nmap.org",
+        "port": 80,
+        "service": "http",
+        "confirmed": null,
+        "confidence": null,
+        "cve_surface": null,
+        "cve_note": null,
+        "severity_downgrade_reason": null,
+        "remediation": "Add 'Content-Security-Policy' to web server configuration.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Identify the web server / reverse proxy in front of the application.",
+          "Add the missing security header globally so every response carries it.",
+          "Verify with a re-scan that the header is present on all endpoints."
+        ],
+        "remediation_commands": {
+          "nginx": [
+            "add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;",
+            "add_header X-Frame-Options \"DENY\" always;",
+            "add_header X-Content-Type-Options \"nosniff\" always;"
+          ],
+          "apache": [
+            "Header always set Strict-Transport-Security \"max-age=31536000\"",
+            "Header always set X-Frame-Options \"DENY\"",
+            "Header always set X-Content-Type-Options \"nosniff\""
+          ]
+        },
+        "timestamp": "2026-10-01T06:30:28.281959+00:00",
+        "exploitation": {
+          "difficulty": "Informational",
+          "attack_paths": [
+            "Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
+            "MIME-confusion scripting (missing X-Content-Type-Options)",
+            "SSL-stripping (missing HSTS)"
+          ],
+          "verification": [
+            "curl -skI <url> | grep -iE 'strict-transport|content-security|x-frame|x-content-type'",
+            "Open the page inside an <iframe> on a test page to confirm framing is allowed."
+          ],
+          "tools": [
+            "curl",
+            "browser dev-tools",
+            "nuclei (-t http/headers/)"
+          ]
+        }
+      },
+      {
+        "id": "WEB-003",
+        "vector": "web",
+        "title": "Missing security header: X-Frame-Options",
+        "severity": "medium",
+        "description": "The HTTP response does not set X-Frame-Options.",
+        "evidence": "GET http://scanme.nmap.org -> no 'X-Frame-Options' header",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "target": "http://scanme.nmap.org",
+        "port": 80,
+        "service": "http",
+        "confirmed": null,
+        "confidence": null,
+        "cve_surface": null,
+        "cve_note": null,
+        "severity_downgrade_reason": null,
+        "remediation": "Add 'X-Frame-Options' to web server configuration.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Identify the web server / reverse proxy in front of the application.",
+          "Add the missing security header globally so every response carries it.",
+          "Verify with a re-scan that the header is present on all endpoints."
+        ],
+        "remediation_commands": {
+          "nginx": [
+            "add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;",
+            "add_header X-Frame-Options \"DENY\" always;",
+            "add_header X-Content-Type-Options \"nosniff\" always;"
+          ],
+          "apache": [
+            "Header always set Strict-Transport-Security \"max-age=31536000\"",
+            "Header always set X-Frame-Options \"DENY\"",
+            "Header always set X-Content-Type-Options \"nosniff\""
+          ]
+        },
+        "timestamp": "2026-10-01T06:30:28.281979+00:00",
+        "exploitation": {
+          "difficulty": "Informational",
+          "attack_paths": [
+            "Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
+            "MIME-confusion scripting (missing X-Content-Type-Options)",
+            "SSL-stripping (missing HSTS)"
+          ],
+          "verification": [
+            "curl -skI <url> | grep -iE 'strict-transport|content-security|x-frame|x-content-type'",
+            "Open the page inside an <iframe> on a test page to confirm framing is allowed."
+          ],
+          "tools": [
+            "curl",
+            "browser dev-tools",
+            "nuclei (-t http/headers/)"
+          ]
+        }
+      },
+      {
+        "id": "WEB-004",
+        "vector": "web",
+        "title": "Missing security header: X-Content-Type-Options",
+        "severity": "medium",
+        "description": "The HTTP response does not set X-Content-Type-Options.",
+        "evidence": "GET http://scanme.nmap.org -> no 'X-Content-Type-Options' header",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "target": "http://scanme.nmap.org",
+        "port": 80,
+        "service": "http",
+        "confirmed": null,
+        "confidence": null,
+        "cve_surface": null,
+        "cve_note": null,
+        "severity_downgrade_reason": null,
+        "remediation": "Add 'X-Content-Type-Options' to web server configuration.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Identify the web server / reverse proxy in front of the application.",
+          "Add the missing security header globally so every response carries it.",
+          "Verify with a re-scan that the header is present on all endpoints."
+        ],
+        "remediation_commands": {
+          "nginx": [
+            "add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;",
+            "add_header X-Frame-Options \"DENY\" always;",
+            "add_header X-Content-Type-Options \"nosniff\" always;"
+          ],
+          "apache": [
+            "Header always set Strict-Transport-Security \"max-age=31536000\"",
+            "Header always set X-Frame-Options \"DENY\"",
+            "Header always set X-Content-Type-Options \"nosniff\""
+          ]
+        },
+        "timestamp": "2026-10-01T06:30:28.281995+00:00",
+        "exploitation": {
+          "difficulty": "Informational",
+          "attack_paths": [
+            "Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
+            "MIME-confusion scripting (missing X-Content-Type-Options)",
+            "SSL-stripping (missing HSTS)"
+          ],
+          "verification": [
+            "curl -skI <url> | grep -iE 'strict-transport|content-security|x-frame|x-content-type'",
+            "Open the page inside an <iframe> on a test page to confirm framing is allowed."
+          ],
+          "tools": [
+            "curl",
+            "browser dev-tools",
+            "nuclei (-t http/headers/)"
+          ]
+        }
+      },
+      {
+        "id": "WEB-005",
+        "vector": "web",
+        "title": "Missing security header: Referrer-Policy",
+        "severity": "medium",
+        "description": "The HTTP response does not set Referrer-Policy.",
+        "evidence": "GET http://scanme.nmap.org -> no 'Referrer-Policy' header",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "target": "http://scanme.nmap.org",
+        "port": 80,
+        "service": "http",
+        "confirmed": null,
+        "confidence": null,
+        "cve_surface": null,
+        "cve_note": null,
+        "severity_downgrade_reason": null,
+        "remediation": "Add 'Referrer-Policy' to web server configuration.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Identify the web server / reverse proxy in front of the application.",
+          "Add the missing security header globally so every response carries it.",
+          "Verify with a re-scan that the header is present on all endpoints."
+        ],
+        "remediation_commands": {
+          "nginx": [
+            "add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;",
+            "add_header X-Frame-Options \"DENY\" always;",
+            "add_header X-Content-Type-Options \"nosniff\" always;"
+          ],
+          "apache": [
+            "Header always set Strict-Transport-Security \"max-age=31536000\"",
+            "Header always set X-Frame-Options \"DENY\"",
+            "Header always set X-Content-Type-Options \"nosniff\""
+          ]
+        },
+        "timestamp": "2026-10-01T06:30:28.282009+00:00",
+        "exploitation": {
+          "difficulty": "Informational",
+          "attack_paths": [
+            "Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
+            "MIME-confusion scripting (missing X-Content-Type-Options)",
+            "SSL-stripping (missing HSTS)"
+          ],
+          "verification": [
+            "curl -skI <url> | grep -iE 'strict-transport|content-security|x-frame|x-content-type'",
+            "Open the page inside an <iframe> on a test page to confirm framing is allowed."
+          ],
+          "tools": [
+            "curl",
+            "browser dev-tools",
+            "nuclei (-t http/headers/)"
+          ]
+        }
+      },
+      {
+        "id": "WEB-006",
+        "vector": "web",
+        "title": "Missing security header: Permissions-Policy",
+        "severity": "medium",
+        "description": "The HTTP response does not set Permissions-Policy.",
+        "evidence": "GET http://scanme.nmap.org -> no 'Permissions-Policy' header",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "target": "http://scanme.nmap.org",
+        "port": 80,
+        "service": "http",
+        "confirmed": null,
+        "confidence": null,
+        "cve_surface": null,
+        "cve_note": null,
+        "severity_downgrade_reason": null,
+        "remediation": "Add 'Permissions-Policy' to web server configuration.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Identify the web server / reverse proxy in front of the application.",
+          "Add the missing security header globally so every response carries it.",
+          "Verify with a re-scan that the header is present on all endpoints."
+        ],
+        "remediation_commands": {
+          "nginx": [
+            "add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;",
+            "add_header X-Frame-Options \"DENY\" always;",
+            "add_header X-Content-Type-Options \"nosniff\" always;"
+          ],
+          "apache": [
+            "Header always set Strict-Transport-Security \"max-age=31536000\"",
+            "Header always set X-Frame-Options \"DENY\"",
+            "Header always set X-Content-Type-Options \"nosniff\""
+          ]
+        },
+        "timestamp": "2026-10-01T06:30:28.282023+00:00",
+        "exploitation": {
+          "difficulty": "Informational",
+          "attack_paths": [
+            "Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
+            "MIME-confusion scripting (missing X-Content-Type-Options)",
+            "SSL-stripping (missing HSTS)"
+          ],
+          "verification": [
+            "curl -skI <url> | grep -iE 'strict-transport|content-security|x-frame|x-content-type'",
+            "Open the page inside an <iframe> on a test page to confirm framing is allowed."
+          ],
+          "tools": [
+            "curl",
+            "browser dev-tools",
+            "nuclei (-t http/headers/)"
+          ]
+        }
+      }
+    ]
+  },
+  "ai": {
+    "executive_summary": "AI unavailable: GEMINI_API_KEY not configured. Set env var or edit config.py",
+    "overall_risk": "Unknown",
+    "risk_score": 0,
+    "top_findings": [],
+    "technical_remediation": [],
+    "conclusion": ""
+  }
+}

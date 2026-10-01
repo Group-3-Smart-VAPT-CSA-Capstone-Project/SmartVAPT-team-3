@@ -57,6 +57,17 @@ class FindingSet:
     def by_vector(self, vector: str) -> List[Finding]:
         return [f for f in self.all() if f.vector == vector]
 
+    def remove(self, finding_id: str) -> bool:
+        """Drop a finding by id (used e.g. to exclude CVEs validated as
+        already patched by the distro). Returns True when removed."""
+        before = len(self._findings)
+        self._findings = [f for f in self._findings if f.id != finding_id]
+        self._ids.discard(finding_id)
+        return len(self._findings) < before
+
+    def list(self) -> List[Finding]:
+        return self.all()
+
     def counts(self) -> Dict[str, int]:
         c = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
         for f in self._findings:

@@ -1,4 +1,5 @@
 import subprocess, re, ssl, socket, requests, dns.resolver, os, shutil
+from command_tracker import run_logged
 import hashlib, secrets
 from datetime import datetime, timezone
 from urllib.parse import urlparse, urljoin
@@ -341,9 +342,8 @@ class WebScanner:
         try:
             if progress_cb is not None:
                 # Real-time mode: stream each discovered path as it appears.
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                        stderr=subprocess.STDOUT, text=True,
-                                        bufsize=1)
+                proc = run_logged(cmd, stdout=subprocess.PIPE,
+                                  stderr=subprocess.STDOUT)
                 lines = []
                 for line in proc.stdout:
                     lines.append(line)

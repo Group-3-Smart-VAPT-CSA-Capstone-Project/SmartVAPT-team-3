@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import time
 from datetime import datetime
 
 from network_scanner import NetworkScanner
@@ -14,6 +15,8 @@ from ai_engine import AIEngine
 from report_gen import generate_report
 from evidence import EvidenceStore
 from findings import FindingSet
+from command_tracker import tracker
+from eta_estimator import ScanEta, fmt_eta
 
 st.set_page_config(page_title="SmartVAPT", page_icon="SHIELD", layout="wide")
 st.title("SmartVAPT")
@@ -94,8 +97,102 @@ if run:
         st.caption(f"Authenticated scan: {len(auth_headers)} custom header(s) "
                    f"({', '.join(auth_headers)}) will be sent to the target.")
 
+    # ------------------------------------------------------------------
+    # Time estimate for the loading page. Before anything runs we show a
+    # conservative per-vector estimate (scaled by the port preset); as each
+    # step finishes its real duration is recorded in eta_history.json so the
+    # NEXT scan of this target estimates from measured averages. The ETA line
+    # below the progress bar refreshes every second while the scan runs.
+    # ------------------------------------------------------------------
+    import threading as _threading
+
+    eta = ScanEta(target, {"network": scan_network, "web": scan_web,
+                           "dns": scan_dns, "nuclei": scan_nuclei,
+                           "sub": scan_sub, "api": scan_api}, ports=ports)
+    est_area = st.empty()                 # headline + live countdown ticker
+    bd_area = st.empty()                  # per-step breakdown (in expander)
+    with st.expander("Estimated time per step"):
+        bd_area.markdown("\n".join(eta.breakdown_lines()))
+
+    progress_text = {"t": "Initializing"}
+    _cur_step = {"label": None}
+    _last_pct = {"v": 0}
+    _scan_done = _threading.Event()
+
+    def set_progress(pct: int, label: str | None = None):
+        """Advance the bar and start/stop the matching ETA step."""
+        if label:
+            eta.start_step(label)
+            _cur_step["label"] = label
+        _last_pct["v"] = pct
+        try:
+            progress.progress(pct, text=f"{progress_text['t']} · {eta.remaining()}")
+        except Exception:
+            pass
+
+    def show_step(pct: int, text: str, label: str | None = None):
+        """Single entry point for every loading-page progress update: sets
+        the current status text, marks the ETA step running, refreshes the
+        bar with '~X remaining'."""
+        progress_text["t"] = text
+        set_progress(pct, label)
+
+    def step_done(label: str):
+        """Mark an ETA step finished (records its measured duration)."""
+        eta.finish_step(label)
+        if _cur_step["label"] == label:
+            _cur_step["label"] = None
+        try:
+            bd_area.markdown("\n".join(eta.breakdown_lines()))
+        except Exception:
+            pass
+
+    def _render_est():
+        try:
+            est_area.info(f"⏱ **{eta.headline()}** — {eta.remaining()}. "
+                          "The estimate updates live as each step completes; "
+                          "actual time depends on target responsiveness.")
+        except Exception:
+            pass      # widget context gone (script finished / session closed)
+
+    def _ticker():
+        while not _scan_done.wait(1.0):
+            _render_est()
+            try:
+                progress.progress(_last_pct["v"],
+                                  text=f"{progress_text['t']} · {eta.remaining()}")
+                bd_area.markdown("\n".join(eta.breakdown_lines()))
+            except Exception:
+                break     # script moved past the widgets; stop refreshing
+
+    _render_est()
+    _threading.Thread(target=_ticker, daemon=True).start()
+
     # Real-time console: scanner status lines are appended as they arrive.
     if live_output:
+        # Background-commands panel: shows the general overview of what is
+        # currently running (e.g. "nmap port/vuln scan running on <target>")
+        # plus every tool launched during this scan, refreshed in real time.
+        cmds_area = st.empty()
+
+        def render_commands():
+            snap = tracker.snapshot()
+            if not snap:
+                return
+            running = [s for s in snap if s["running"]]
+            done = [s for s in snap if not s["running"]]
+            header = (f"⚙️ **Background commands** — "
+                      f"{len(running)} running, {len(done)} finished")
+            rows = []
+            for s in running + done:
+                icon = "🟢" if s["running"] else ("✅" if s["state"] == "done" else "⚠️")
+                state = "running…" if s["running"] else s["state"]
+                rows.append(f"{icon} {s['desc']}  ·  {state}  ·  {s['elapsed']}s\n"
+                            f"   `$ {s['cmd']}`")
+            cmds_area.markdown(header + "\n\n" + "\n\n".join(rows))
+
+        render_commands()
+
         log_area = st.empty()
         log_lines: list[str] = []
 
@@ -104,8 +201,12 @@ if run:
             if len(log_lines) > 200:          # keep the view bounded
                 del log_lines[:-200]
             log_area.code("\n".join(log_lines))
+            render_commands()                 # refresh the overview too
     else:
         def log_line(line: str):
+            pass
+
+        def render_commands():
             pass
 
     # Pause / stop controls for long-running scans. The callback below is
@@ -152,14 +253,21 @@ if run:
     # 1) NETWORK
     # ----------------------------------------------------------------
     if scan_network and not scan_stopped:
-        progress.progress(15, text="Running network scan (Nmap + vulners)...")
+        show_step(15, "Running network scan (Nmap + vulners)...",
+                  "Network scan (Nmap)")
         try:
             net_target = (target.replace("http://", "")
                                 .replace("https://", "")
                                 .split("/")[0].split(":")[0])
             ns = NetworkScanner(net_target, evidence=evidence)
+
+            def _net_cb(line: str):
+                render_commands()   # refresh overview on every nmap status line
+                run_cb(line) if run_cb else None
+
             net_result = ns.scan(ports=ports, os_detect=False,
-                                 progress_cb=run_cb, stop_flag=ctrl)
+                                 progress_cb=_net_cb if live_output else None,
+                                 stop_flag=ctrl)
             results["network"] = net_result
             # Record the exact port selection for the report ("top1000" or a
             # literal range like "1-1000").
@@ -185,6 +293,7 @@ if run:
                 results["network"] = {"error": str(e)}
         except Exception as e:
             results["network"] = {"error": str(e)}
+        step_done("Network scan (Nmap)")
     else:
         results["network"] = {}
 
@@ -203,7 +312,7 @@ if run:
             st.caption(f"HTTP discovered on port {http_services[0]['port']} "
                        f"via direct probe ({http_services[0]['url']}).")
     if scan_web and not scan_stopped:
-        progress.progress(45, text="Auditing web application...")
+        show_step(45, "Auditing web application...", "Web application audit")
         try:
             ws = WebScanner(target, evidence=evidence, auth_headers=auth_headers)
             # Follow nmap -sV: if HTTP was detected on a non-default port,
@@ -249,6 +358,7 @@ if run:
                 results["web"] = {"error": str(e)}
         except Exception as e:
             results["web"] = {"error": str(e)}
+        step_done("Web application audit")
     else:
         results["web"] = {}
 
@@ -256,7 +366,7 @@ if run:
     # 3) DNS
     # ----------------------------------------------------------------
     if scan_dns and not scan_stopped:
-        progress.progress(70, text="Checking SPF / DMARC...")
+        show_step(70, "Checking SPF / DMARC...", "DNS / email security")
         try:
             domain = (target.replace("http://", "")
                             .replace("https://", "")
@@ -275,6 +385,7 @@ if run:
                     st.warning(f"Skipped malformed finding: {fe}")
         except Exception as e:
             results["dns"] = {"error": str(e)}
+        step_done("DNS / email security")
     else:
         results["dns"] = {}
 
@@ -282,7 +393,7 @@ if run:
     # 3b) NUCLEI (extended web vector)
     # ----------------------------------------------------------------
     if scan_nuclei and not scan_stopped:
-        progress.progress(74, text="Running Nuclei template scan...")
+        show_step(74, "Running Nuclei template scan...", "Nuclei templates")
         try:
             nuc_target = ((results.get("web") or {}).get("directories") or {}).get("target") \
                 or (results.get("network") or {}).get("primary_http_url") or target
@@ -310,6 +421,7 @@ if run:
                 results["nuclei"] = {"error": str(e)}
         except Exception as e:
             results["nuclei"] = {"error": str(e)}
+        step_done("Nuclei templates")
     else:
         results["nuclei"] = {}
 
@@ -317,7 +429,8 @@ if run:
     # 3c) SUBDOMAIN ENUM + TAKEOVER (recon vector)
     # ----------------------------------------------------------------
     if scan_sub and not scan_stopped:
-        progress.progress(78, text="Enumerating subdomains / takeover checks...")
+        show_step(78, "Enumerating subdomains / takeover checks...",
+                  "Subdomain enumeration")
         try:
             domain = (target.replace("http://", "")
                             .replace("https://", "")
@@ -342,6 +455,7 @@ if run:
                 results["subdomains"] = {"error": str(e)}
         except Exception as e:
             results["subdomains"] = {"error": str(e)}
+        step_done("Subdomain enumeration")
     else:
         results["subdomains"] = {}
 
@@ -349,7 +463,7 @@ if run:
     # 3d) API SECURITY CHECKS
     # ----------------------------------------------------------------
     if scan_api and not scan_stopped:
-        progress.progress(81, text="Running API security checks...")
+        show_step(81, "Running API security checks...", "API security checks")
         try:
             asc = APIScanner(target, evidence=evidence, auth_headers=auth_headers)
             api_result = asc.run_all(progress_cb=run_cb, stop_flag=ctrl)
@@ -371,13 +485,14 @@ if run:
                 results["api"] = {"error": str(e)}
         except Exception as e:
             results["api"] = {"error": str(e)}
+        step_done("API security checks")
     else:
         results["api"] = {}
 
     # ----------------------------------------------------------------
     # 4) AI
     # ----------------------------------------------------------------
-    progress.progress(85, text="AI is analyzing findings...")
+    show_step(85, "AI is analyzing findings...", "AI analysis + report")
     # Deterministic CVSS normalization + remediation playbooks first, so the
     # report is complete even when the AI is unavailable.
     enriched = enrich_findings(findings.to_dict_list())
@@ -423,7 +538,8 @@ if run:
     # ----------------------------------------------------------------
     # 5) PDF
     # ----------------------------------------------------------------
-    progress.progress(95, text="Generating PDF report...")
+    progress_text["t"] = "Generating PDF report..."
+    set_progress(95)
     pdf_path = f"SmartVAPT_{scan_id}.pdf"
     try:
         generate_report(results, ai_result, pdf_path)
@@ -431,8 +547,14 @@ if run:
         pdf_path = None
         st.warning(f"PDF generation failed: {e}")
 
-    progress.progress(100, text="Scan complete")
-    st.success(f"Scan completed for {target} — {len(findings)} findings")
+    step_done("AI analysis + report")
+    _scan_done.set()                    # stop the live ETA ticker
+    total_elapsed = time.time() - eta.started
+    planned = fmt_eta(eta.total_estimate())
+    progress.progress(100, text=f"Scan complete — actual {fmt_eta(total_elapsed)} "
+                                f"(planned ~{planned})")
+    st.success(f"Scan completed for {target} in {total_elapsed:.0f}s — "
+               f"{len(findings)} findings")
 
     # ----------------------------------------------------------------
     # RISK SUMMARY DASHBOARD
