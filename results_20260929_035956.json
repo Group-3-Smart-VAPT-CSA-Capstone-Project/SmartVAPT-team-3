@@ -1,0 +1,586 @@
+{
+  "results": {
+    "target": "https://example.com",
+    "scan_id": "20260929_035956",
+    "network": {
+      "error": "[Errno 2] No such file or directory: 'nmap'"
+    },
+    "web": {
+      "headers": {
+        "url": "http://example.com",
+        "missing": [
+          "Strict-Transport-Security",
+          "Content-Security-Policy",
+          "X-Frame-Options",
+          "X-Content-Type-Options",
+          "Referrer-Policy",
+          "Permissions-Policy"
+        ],
+        "present": [],
+        "server": "cloudflare",
+        "findings": [
+          {
+            "id": "WEB-001",
+            "vector": "web",
+            "title": "Missing security header: Strict-Transport-Security",
+            "severity": "medium",
+            "description": "The HTTP response does not set Strict-Transport-Security.",
+            "evidence": "GET http://example.com -> no 'Strict-Transport-Security' header",
+            "cve": null,
+            "cvss": null,
+            "owasp": "A05:2021 - Security Misconfiguration",
+            "target": "http://example.com",
+            "port": 80,
+            "service": "http",
+            "remediation": "Add 'Strict-Transport-Security' to web server configuration.",
+            "cvss_vector": null,
+            "remediation_steps": null,
+            "remediation_commands": null,
+            "timestamp": "2026-09-29T04:00:29.030363+00:00"
+          },
+          {
+            "id": "WEB-002",
+            "vector": "web",
+            "title": "Missing security header: Content-Security-Policy",
+            "severity": "medium",
+            "description": "The HTTP response does not set Content-Security-Policy.",
+            "evidence": "GET http://example.com -> no 'Content-Security-Policy' header",
+            "cve": null,
+            "cvss": null,
+            "owasp": "A05:2021 - Security Misconfiguration",
+            "target": "http://example.com",
+            "port": 80,
+            "service": "http",
+            "remediation": "Add 'Content-Security-Policy' to web server configuration.",
+            "cvss_vector": null,
+            "remediation_steps": null,
+            "remediation_commands": null,
+            "timestamp": "2026-09-29T04:00:29.030425+00:00"
+          },
+          {
+            "id": "WEB-003",
+            "vector": "web",
+            "title": "Missing security header: X-Frame-Options",
+            "severity": "medium",
+            "description": "The HTTP response does not set X-Frame-Options.",
+            "evidence": "GET http://example.com -> no 'X-Frame-Options' header",
+            "cve": null,
+            "cvss": null,
+            "owasp": "A05:2021 - Security Misconfiguration",
+            "target": "http://example.com",
+            "port": 80,
+            "service": "http",
+            "remediation": "Add 'X-Frame-Options' to web server configuration.",
+            "cvss_vector": null,
+            "remediation_steps": null,
+            "remediation_commands": null,
+            "timestamp": "2026-09-29T04:00:29.030445+00:00"
+          },
+          {
+            "id": "WEB-004",
+            "vector": "web",
+            "title": "Missing security header: X-Content-Type-Options",
+            "severity": "medium",
+            "description": "The HTTP response does not set X-Content-Type-Options.",
+            "evidence": "GET http://example.com -> no 'X-Content-Type-Options' header",
+            "cve": null,
+            "cvss": null,
+            "owasp": "A05:2021 - Security Misconfiguration",
+            "target": "http://example.com",
+            "port": 80,
+            "service": "http",
+            "remediation": "Add 'X-Content-Type-Options' to web server configuration.",
+            "cvss_vector": null,
+            "remediation_steps": null,
+            "remediation_commands": null,
+            "timestamp": "2026-09-29T04:00:29.030461+00:00"
+          },
+          {
+            "id": "WEB-005",
+            "vector": "web",
+            "title": "Missing security header: Referrer-Policy",
+            "severity": "medium",
+            "description": "The HTTP response does not set Referrer-Policy.",
+            "evidence": "GET http://example.com -> no 'Referrer-Policy' header",
+            "cve": null,
+            "cvss": null,
+            "owasp": "A05:2021 - Security Misconfiguration",
+            "target": "http://example.com",
+            "port": 80,
+            "service": "http",
+            "remediation": "Add 'Referrer-Policy' to web server configuration.",
+            "cvss_vector": null,
+            "remediation_steps": null,
+            "remediation_commands": null,
+            "timestamp": "2026-09-29T04:00:29.030476+00:00"
+          },
+          {
+            "id": "WEB-006",
+            "vector": "web",
+            "title": "Missing security header: Permissions-Policy",
+            "severity": "medium",
+            "description": "The HTTP response does not set Permissions-Policy.",
+            "evidence": "GET http://example.com -> no 'Permissions-Policy' header",
+            "cve": null,
+            "cvss": null,
+            "owasp": "A05:2021 - Security Misconfiguration",
+            "target": "http://example.com",
+            "port": 80,
+            "service": "http",
+            "remediation": "Add 'Permissions-Policy' to web server configuration.",
+            "cvss_vector": null,
+            "remediation_steps": null,
+            "remediation_commands": null,
+            "timestamp": "2026-09-29T04:00:29.030491+00:00"
+          }
+        ],
+        "error": null
+      },
+      "technologies": {
+        "technologies": [
+          {
+            "name": "cloudflare",
+            "via": "header:Server"
+          }
+        ],
+        "count": 1
+      },
+      "directories": {
+        "target": "http://example.com",
+        "found": [],
+        "findings": [],
+        "error": "Wordlist not found: /usr/share/wordlists/dirb/common.txt"
+      },
+      "tls": {
+        "enabled": false,
+        "note": "Target not using HTTPS",
+        "findings": []
+      },
+      "robots_sitemap": {
+        "robots": null,
+        "sitemap": null,
+        "disallowed": [],
+        "findings": []
+      },
+      "sensitive_paths": {
+        "found": [],
+        "findings": []
+      },
+      "redirects": {
+        "chain": [
+          {
+            "status": 200,
+            "url": "http://example.com/",
+            "location": null
+          }
+        ],
+        "findings": [
+          {
+            "id": "WEB-007",
+            "vector": "web",
+            "title": "No HTTP -> HTTPS redirect",
+            "severity": "high",
+            "description": "Plain HTTP is served without redirecting to HTTPS.",
+            "evidence": "Final URL: http://example.com/",
+            "cve": null,
+            "cvss": null,
+            "owasp": "A02:2021 - Cryptographic Failures",
+            "target": "http://example.com",
+            "port": 80,
+            "service": "http",
+            "remediation": "Configure 301 redirect from HTTP to HTTPS.",
+            "cvss_vector": null,
+            "remediation_steps": null,
+            "remediation_commands": null,
+            "timestamp": "2026-09-29T04:00:29.380181+00:00"
+          }
+        ]
+      }
+    },
+    "dns": {
+      "domain": "example.com",
+      "spf": {
+        "present": true,
+        "record": "v=spf1 -all"
+      },
+      "dmarc": {
+        "present": true,
+        "record": "v=DMARC1;p=reject;sp=reject;adkim=s;aspf=s",
+        "policy": "reject"
+      },
+      "findings": []
+    },
+    "nuclei": {
+      "target": "http://example.com",
+      "available": false,
+      "matched": [],
+      "findings": [],
+      "error": "nuclei binary not found. Install it: sudo apt install nuclei  (or download from https://github.com/projectdiscovery/nuclei)"
+    },
+    "findings": [
+      {
+        "id": "WEB-007",
+        "vector": "web",
+        "title": "No HTTP -> HTTPS redirect",
+        "severity": "high",
+        "description": "Plain HTTP is served without redirecting to HTTPS.",
+        "evidence": "Final URL: http://example.com/",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A02:2021 - Cryptographic Failures",
+        "target": "http://example.com",
+        "port": 80,
+        "service": "http",
+        "remediation": "Configure 301 redirect from HTTP to HTTPS.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Disable TLS 1.0/1.1; require TLS 1.2+ with AEAD cipher suites.",
+          "Renew certificates expiring within 30 days and automate renewal (ACME).",
+          "Enable HSTS after HTTPS is fully deployed."
+        ],
+        "remediation_commands": {
+          "nginx": [
+            "ssl_protocols TLSv1.2 TLSv1.3;",
+            "ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;",
+            "add_header Strict-Transport-Security \"max-age=31536000\" always;"
+          ],
+          "certbot": [
+            "certbot renew --cert-name <name>",
+            "certbot --nginx -d example.com"
+          ]
+        },
+        "timestamp": "2026-09-29T04:00:29.380181+00:00",
+        "exploitation": {
+          "difficulty": "Moderate",
+          "attack_paths": [
+            "Downgrade to weak cipher (SWEET32/BEAST class issues)",
+            "Interception when certificate is invalid/expired"
+          ],
+          "verification": [
+            "openssl s_client -connect <host>:<port> -tls1_1   # should FAIL if hardened",
+            "nmap --script ssl-enum-ciphers -p <port> <host>"
+          ],
+          "tools": [
+            "openssl s_client",
+            "testssl.sh",
+            "sslyze"
+          ]
+        }
+      },
+      {
+        "id": "WEB-001",
+        "vector": "web",
+        "title": "Missing security header: Strict-Transport-Security",
+        "severity": "medium",
+        "description": "The HTTP response does not set Strict-Transport-Security.",
+        "evidence": "GET http://example.com -> no 'Strict-Transport-Security' header",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "target": "http://example.com",
+        "port": 80,
+        "service": "http",
+        "remediation": "Add 'Strict-Transport-Security' to web server configuration.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Identify the web server / reverse proxy in front of the application.",
+          "Add the missing security header globally so every response carries it.",
+          "Verify with a re-scan that the header is present on all endpoints."
+        ],
+        "remediation_commands": {
+          "nginx": [
+            "add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;",
+            "add_header X-Frame-Options \"DENY\" always;",
+            "add_header X-Content-Type-Options \"nosniff\" always;"
+          ],
+          "apache": [
+            "Header always set Strict-Transport-Security \"max-age=31536000\"",
+            "Header always set X-Frame-Options \"DENY\"",
+            "Header always set X-Content-Type-Options \"nosniff\""
+          ]
+        },
+        "timestamp": "2026-09-29T04:00:29.030363+00:00",
+        "exploitation": {
+          "difficulty": "Informational",
+          "attack_paths": [
+            "Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
+            "MIME-confusion scripting (missing X-Content-Type-Options)",
+            "SSL-stripping (missing HSTS)"
+          ],
+          "verification": [
+            "curl -skI <url> | grep -iE 'strict-transport|content-security|x-frame|x-content-type'",
+            "Open the page inside an <iframe> on a test page to confirm framing is allowed."
+          ],
+          "tools": [
+            "curl",
+            "browser dev-tools",
+            "nuclei (-t http/headers/)"
+          ]
+        }
+      },
+      {
+        "id": "WEB-002",
+        "vector": "web",
+        "title": "Missing security header: Content-Security-Policy",
+        "severity": "medium",
+        "description": "The HTTP response does not set Content-Security-Policy.",
+        "evidence": "GET http://example.com -> no 'Content-Security-Policy' header",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "target": "http://example.com",
+        "port": 80,
+        "service": "http",
+        "remediation": "Add 'Content-Security-Policy' to web server configuration.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Identify the web server / reverse proxy in front of the application.",
+          "Add the missing security header globally so every response carries it.",
+          "Verify with a re-scan that the header is present on all endpoints."
+        ],
+        "remediation_commands": {
+          "nginx": [
+            "add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;",
+            "add_header X-Frame-Options \"DENY\" always;",
+            "add_header X-Content-Type-Options \"nosniff\" always;"
+          ],
+          "apache": [
+            "Header always set Strict-Transport-Security \"max-age=31536000\"",
+            "Header always set X-Frame-Options \"DENY\"",
+            "Header always set X-Content-Type-Options \"nosniff\""
+          ]
+        },
+        "timestamp": "2026-09-29T04:00:29.030425+00:00",
+        "exploitation": {
+          "difficulty": "Informational",
+          "attack_paths": [
+            "Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
+            "MIME-confusion scripting (missing X-Content-Type-Options)",
+            "SSL-stripping (missing HSTS)"
+          ],
+          "verification": [
+            "curl -skI <url> | grep -iE 'strict-transport|content-security|x-frame|x-content-type'",
+            "Open the page inside an <iframe> on a test page to confirm framing is allowed."
+          ],
+          "tools": [
+            "curl",
+            "browser dev-tools",
+            "nuclei (-t http/headers/)"
+          ]
+        }
+      },
+      {
+        "id": "WEB-003",
+        "vector": "web",
+        "title": "Missing security header: X-Frame-Options",
+        "severity": "medium",
+        "description": "The HTTP response does not set X-Frame-Options.",
+        "evidence": "GET http://example.com -> no 'X-Frame-Options' header",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "target": "http://example.com",
+        "port": 80,
+        "service": "http",
+        "remediation": "Add 'X-Frame-Options' to web server configuration.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Identify the web server / reverse proxy in front of the application.",
+          "Add the missing security header globally so every response carries it.",
+          "Verify with a re-scan that the header is present on all endpoints."
+        ],
+        "remediation_commands": {
+          "nginx": [
+            "add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;",
+            "add_header X-Frame-Options \"DENY\" always;",
+            "add_header X-Content-Type-Options \"nosniff\" always;"
+          ],
+          "apache": [
+            "Header always set Strict-Transport-Security \"max-age=31536000\"",
+            "Header always set X-Frame-Options \"DENY\"",
+            "Header always set X-Content-Type-Options \"nosniff\""
+          ]
+        },
+        "timestamp": "2026-09-29T04:00:29.030445+00:00",
+        "exploitation": {
+          "difficulty": "Informational",
+          "attack_paths": [
+            "Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
+            "MIME-confusion scripting (missing X-Content-Type-Options)",
+            "SSL-stripping (missing HSTS)"
+          ],
+          "verification": [
+            "curl -skI <url> | grep -iE 'strict-transport|content-security|x-frame|x-content-type'",
+            "Open the page inside an <iframe> on a test page to confirm framing is allowed."
+          ],
+          "tools": [
+            "curl",
+            "browser dev-tools",
+            "nuclei (-t http/headers/)"
+          ]
+        }
+      },
+      {
+        "id": "WEB-004",
+        "vector": "web",
+        "title": "Missing security header: X-Content-Type-Options",
+        "severity": "medium",
+        "description": "The HTTP response does not set X-Content-Type-Options.",
+        "evidence": "GET http://example.com -> no 'X-Content-Type-Options' header",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "target": "http://example.com",
+        "port": 80,
+        "service": "http",
+        "remediation": "Add 'X-Content-Type-Options' to web server configuration.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Identify the web server / reverse proxy in front of the application.",
+          "Add the missing security header globally so every response carries it.",
+          "Verify with a re-scan that the header is present on all endpoints."
+        ],
+        "remediation_commands": {
+          "nginx": [
+            "add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;",
+            "add_header X-Frame-Options \"DENY\" always;",
+            "add_header X-Content-Type-Options \"nosniff\" always;"
+          ],
+          "apache": [
+            "Header always set Strict-Transport-Security \"max-age=31536000\"",
+            "Header always set X-Frame-Options \"DENY\"",
+            "Header always set X-Content-Type-Options \"nosniff\""
+          ]
+        },
+        "timestamp": "2026-09-29T04:00:29.030461+00:00",
+        "exploitation": {
+          "difficulty": "Informational",
+          "attack_paths": [
+            "Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
+            "MIME-confusion scripting (missing X-Content-Type-Options)",
+            "SSL-stripping (missing HSTS)"
+          ],
+          "verification": [
+            "curl -skI <url> | grep -iE 'strict-transport|content-security|x-frame|x-content-type'",
+            "Open the page inside an <iframe> on a test page to confirm framing is allowed."
+          ],
+          "tools": [
+            "curl",
+            "browser dev-tools",
+            "nuclei (-t http/headers/)"
+          ]
+        }
+      },
+      {
+        "id": "WEB-005",
+        "vector": "web",
+        "title": "Missing security header: Referrer-Policy",
+        "severity": "medium",
+        "description": "The HTTP response does not set Referrer-Policy.",
+        "evidence": "GET http://example.com -> no 'Referrer-Policy' header",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "target": "http://example.com",
+        "port": 80,
+        "service": "http",
+        "remediation": "Add 'Referrer-Policy' to web server configuration.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Identify the web server / reverse proxy in front of the application.",
+          "Add the missing security header globally so every response carries it.",
+          "Verify with a re-scan that the header is present on all endpoints."
+        ],
+        "remediation_commands": {
+          "nginx": [
+            "add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;",
+            "add_header X-Frame-Options \"DENY\" always;",
+            "add_header X-Content-Type-Options \"nosniff\" always;"
+          ],
+          "apache": [
+            "Header always set Strict-Transport-Security \"max-age=31536000\"",
+            "Header always set X-Frame-Options \"DENY\"",
+            "Header always set X-Content-Type-Options \"nosniff\""
+          ]
+        },
+        "timestamp": "2026-09-29T04:00:29.030476+00:00",
+        "exploitation": {
+          "difficulty": "Informational",
+          "attack_paths": [
+            "Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
+            "MIME-confusion scripting (missing X-Content-Type-Options)",
+            "SSL-stripping (missing HSTS)"
+          ],
+          "verification": [
+            "curl -skI <url> | grep -iE 'strict-transport|content-security|x-frame|x-content-type'",
+            "Open the page inside an <iframe> on a test page to confirm framing is allowed."
+          ],
+          "tools": [
+            "curl",
+            "browser dev-tools",
+            "nuclei (-t http/headers/)"
+          ]
+        }
+      },
+      {
+        "id": "WEB-006",
+        "vector": "web",
+        "title": "Missing security header: Permissions-Policy",
+        "severity": "medium",
+        "description": "The HTTP response does not set Permissions-Policy.",
+        "evidence": "GET http://example.com -> no 'Permissions-Policy' header",
+        "cve": null,
+        "cvss": null,
+        "owasp": "A05:2021 - Security Misconfiguration",
+        "target": "http://example.com",
+        "port": 80,
+        "service": "http",
+        "remediation": "Add 'Permissions-Policy' to web server configuration.",
+        "cvss_vector": null,
+        "remediation_steps": [
+          "Identify the web server / reverse proxy in front of the application.",
+          "Add the missing security header globally so every response carries it.",
+          "Verify with a re-scan that the header is present on all endpoints."
+        ],
+        "remediation_commands": {
+          "nginx": [
+            "add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;",
+            "add_header X-Frame-Options \"DENY\" always;",
+            "add_header X-Content-Type-Options \"nosniff\" always;"
+          ],
+          "apache": [
+            "Header always set Strict-Transport-Security \"max-age=31536000\"",
+            "Header always set X-Frame-Options \"DENY\"",
+            "Header always set X-Content-Type-Options \"nosniff\""
+          ]
+        },
+        "timestamp": "2026-09-29T04:00:29.030491+00:00",
+        "exploitation": {
+          "difficulty": "Informational",
+          "attack_paths": [
+            "Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
+            "MIME-confusion scripting (missing X-Content-Type-Options)",
+            "SSL-stripping (missing HSTS)"
+          ],
+          "verification": [
+            "curl -skI <url> | grep -iE 'strict-transport|content-security|x-frame|x-content-type'",
+            "Open the page inside an <iframe> on a test page to confirm framing is allowed."
+          ],
+          "tools": [
+            "curl",
+            "browser dev-tools",
+            "nuclei (-t http/headers/)"
+          ]
+        }
+      }
+    ]
+  },
+  "ai": {
+    "executive_summary": "AI unavailable: GEMINI_API_KEY not configured. Set env var or edit config.py",
+    "overall_risk": "Unknown",
+    "risk_score": 0,
+    "top_findings": [],
+    "technical_remediation": [],
+    "conclusion": ""
+  }
+}

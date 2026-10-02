@@ -1,0 +1,36 @@
+{
+  "detected": false,
+  "probed": 3,
+  "returned_200": 0,
+  "note": "Server returns proper error codes for non-existent paths; no soft-404 baseline needed.",
+  "probes": [
+    {
+      "path": "smvapt-b9e558b53f0d646a-404-17796",
+      "status": 404,
+      "size": 311,
+      "body_sha256": "143408c7144fd46d2078eba7c772d9c45c8a62671a89e00190dd4eaeeea58781",
+      "title": "404 Not Found",
+      "content_type": "text/html"
+    },
+    {
+      "path": "smvapt-4be40acf72d693d5-404-13526",
+      "status": 404,
+      "size": 311,
+      "body_sha256": "0b6acccf8eb8c9ead5b0ddd8e42dcc9d59d17dc7702993f3bbe8f72d5594592f",
+      "title": "404 Not Found",
+      "content_type": "text/html"
+    },
+    {
+      "path": "smvapt-61b316d1e1c4ef67-404-80365",
+      "status": 404,
+      "size": 311,
+      "body_sha256": "862bd0cf23bfde259885fd85635be5ffa48ad212b4c4b7007137db14d45dea4c",
+      "title": "404 Not Found",
+      "content_type": "text/html"
+    }
+  ],
+  "body_size": null,
+  "body_sha256": null,
+  "title": null,
+  "content_type": null
+}
