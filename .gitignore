@@ -1,11 +1,9 @@
-# Python
 __pycache__/
-*.pyc
 venv/
-
-# Logs
+.pytest_cache/
+*.pyc
 *.log
-
-# Build artifacts / Generated reports
-SmartVAPT_*.pdf
+evidence/
 results_*.json
+SmartVAPT_*.pdf
+Screenshot.jpeg

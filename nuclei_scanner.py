@@ -8,7 +8,6 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 from typing import Any, Callable, Dict, List, Optional
 
 from findings import Finding

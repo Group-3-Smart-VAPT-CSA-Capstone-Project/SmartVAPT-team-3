@@ -318,7 +318,6 @@ if run:
             # Follow nmap -sV: if HTTP was detected on a non-default port,
             # re-point the whole web audit (headers/dirs/TLS/...) at it.
             http_services = (results.get("network", {}) or {}).get("http_services") or []
-            from urllib.parse import urlparse as _up
             if http_services:
                 det_url = http_services[0].get("url") or ""
                 # Always sync port/service metadata with nmap -sV observations

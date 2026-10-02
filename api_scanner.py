@@ -7,7 +7,7 @@ test (small burst), and common misconfig probes. No exploitation payloads.
 import json
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from urllib.parse import urljoin, urlparse
 
 import requests

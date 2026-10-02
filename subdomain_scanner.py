@@ -4,10 +4,8 @@ subdomain-takeover detection for dangling CNAME records.
 Uses only dnspython + requests so it works without external binaries.
 If the `subfinder` binary is installed it is used as an additional source.
 """
-import json
 import re
 import shutil
-import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Dict, List, Optional
 
