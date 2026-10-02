@@ -1,9 +1,1 @@
-__pycache__/
-venv/
-.pytest_cache/
-*.pyc
-*.log
-evidence/
-results_*.json
-SmartVAPT_*.pdf
-Screenshot.jpeg
+(empty)

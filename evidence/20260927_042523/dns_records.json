@@ -1,0 +1,53 @@
+{
+  "domain": "scanme.nmap.org",
+  "spf": {
+    "present": false,
+    "record": null,
+    "error": "The DNS response does not contain an answer to the question: scanme.nmap.org. IN TXT"
+  },
+  "dmarc": {
+    "present": false,
+    "record": null,
+    "error": "The DNS query name does not exist: _dmarc.scanme.nmap.org."
+  },
+  "findings": [
+    {
+      "id": "DNS-001",
+      "vector": "dns",
+      "title": "Missing SPF record",
+      "severity": "high",
+      "description": "scanme.nmap.org has no SPF TXT record.",
+      "evidence": "The DNS response does not contain an answer to the question: scanme.nmap.org. IN TXT",
+      "cve": null,
+      "cvss": null,
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "target": "scanme.nmap.org",
+      "port": null,
+      "service": null,
+      "remediation": "Publish an SPF record listing authorized senders.",
+      "cvss_vector": null,
+      "remediation_steps": null,
+      "remediation_commands": null,
+      "timestamp": "2026-09-27T04:25:39.904835"
+    },
+    {
+      "id": "DNS-002",
+      "vector": "dns",
+      "title": "Missing DMARC record",
+      "severity": "high",
+      "description": "_dmarc.scanme.nmap.org has no DMARC record.",
+      "evidence": "The DNS query name does not exist: _dmarc.scanme.nmap.org.",
+      "cve": null,
+      "cvss": null,
+      "owasp": "A07:2021 - Identification and Authentication Failures",
+      "target": "scanme.nmap.org",
+      "port": null,
+      "service": null,
+      "remediation": "Publish DMARC with p=none first, then quarantine/reject.",
+      "cvss_vector": null,
+      "remediation_steps": null,
+      "remediation_commands": null,
+      "timestamp": "2026-09-27T04:25:39.904886"
+    }
+  ]
+}
