@@ -17,10 +17,15 @@ import socket
 import ssl
 import sys
 import threading
+import urllib3
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+# This harness intentionally talks to throwaway local servers with self-signed
+# certs; silence the noisy per-request InsecureRequestWarning (the explicit
+# verify=False below is deliberate and scoped to localhost testing only).
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 sys.path.insert(0, "/workspace")
-from findings import FindingSet
 from web_scanner import WebScanner, SECURITY_HEADERS
 
 CONF = "/workspace/fixes/nginx_smartvapt.conf"

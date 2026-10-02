@@ -1,4 +1,4 @@
-import subprocess, re, ssl, socket, requests, dns.resolver, os, shutil
+import subprocess, re, ssl, socket, requests, dns.resolver, os
 from command_tracker import run_logged
 import hashlib, secrets
 from datetime import datetime, timezone

@@ -1,6 +1,0 @@
-[
-  {
-    "name": "cloudflare",
-    "via": "header:Server"
-  }
-]

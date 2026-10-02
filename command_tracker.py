@@ -18,7 +18,7 @@ import re
 import subprocess
 import threading
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Dict, List, Optional
 
 
 class CommandTracker:
@@ -155,7 +155,7 @@ def run_logged(cmd: list, *, desc: str = None,
                              timeout=timeout, **kwargs)
         tracker.finish(tracker.start(cmd, d, None), rc=res.returncode)
         return res
-    except subprocess.TimeoutExpired as e:
+    except subprocess.TimeoutExpired:
         tracker.finish(tracker.start(cmd, d, None), rc="timeout")
         raise
     except OSError as e:

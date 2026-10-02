@@ -198,8 +198,9 @@ def main():
             buckets = sf.apply_validations(dicts, ssh_banner)
             validated_counts = {k: len(v) for k, v in buckets.items()}
             patched_cves = sorted({f["cve"] for f in buckets["patched"]})
-            keep = {id(f) for k in ("vulnerable", "unconfirmed")
-                    for f in buckets[k]}
+            # apply_validations() mutates the dict objects we passed in and
+            # sorts them into buckets, so identify patched entries by object
+            # identity of the *input* dicts (not the Finding dataclasses).
             patched_ids = {id(f) for f in buckets["patched"]}
             for f, d in zip(cve_fs, dicts):
                 if id(d) in patched_ids:

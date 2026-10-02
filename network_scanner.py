@@ -1,14 +1,13 @@
 import nmap
 import os
 import re
-import shlex
 import subprocess
 import tempfile
 import time
 from typing import List, Dict, Any, Callable, Optional
 from findings import Finding
 from evidence import EvidenceStore
-from portsets import PORT_SETS, normalize_ports, port_arg_tokens
+from portsets import normalize_ports, port_arg_tokens
 from command_tracker import run_logged
 
 
