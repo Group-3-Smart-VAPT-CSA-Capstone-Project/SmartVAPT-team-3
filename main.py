@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 
 from network_scanner import NetworkScanner
+from geo_locator import GeoLocator
 from web_scanner import WebScanner, DNSScanner, parse_auth_headers
 from nuclei_scanner import NucleiScanner
 from subdomain_scanner import SubdomainScanner
@@ -29,6 +30,12 @@ with st.sidebar:
     scan_network = st.checkbox("Network Scan (Nmap + vulners)", value=True)
     scan_web = st.checkbox("Web App Audit (headers + dirs)", value=True)
     scan_dns = st.checkbox("DNS / Email Security (SPF + DMARC)", value=True)
+    scan_geo = st.checkbox("IP Geolocation & Hosting Lookup", value=True,
+                           help="Resolve the target to its IP(s) and show "
+                                "where they are located (country/city) and "
+                                "which hosting provider the website is set "
+                                "up on (ISP / org / ASN). Uses free public "
+                                "GeoIP APIs; private IPs are never sent out.")
     st.markdown("**Extended vectors**")
     ports_mode = st.radio("Port selection",
                           ["Top 1000 most-used ports of all 65535 (recommended)",
@@ -108,7 +115,8 @@ if run:
 
     eta = ScanEta(target, {"network": scan_network, "web": scan_web,
                            "dns": scan_dns, "nuclei": scan_nuclei,
-                           "sub": scan_sub, "api": scan_api}, ports=ports)
+                           "sub": scan_sub, "api": scan_api,
+                           "geo": scan_geo}, ports=ports)
     est_area = st.empty()                 # headline + live countdown ticker
     bd_area = st.empty()                  # per-step breakdown (in expander)
     with st.expander("Estimated time per step"):
@@ -248,6 +256,25 @@ if run:
         """Check the shared stop flag between steps (works even when the
         live console is off, so long as a step has run at least once)."""
         return scan_stopped or ctrl.get("stop", False)
+
+    # ----------------------------------------------------------------
+    # 0) GEOLOCATION / HOSTING LOOKUP
+    #    Resolve the target to its IP(s), find where each IP is located
+    #    (country/region/city) and where the website is set up (hosting
+    #    provider / ISP / ASN + web server port). Non-intrusive: only
+    #    public GeoIP APIs, no traffic to the target beyond one HEAD/GET.
+    # ----------------------------------------------------------------
+    if scan_geo and not scan_stopped:
+        show_step(5, "Looking up target IP location & hosting...",
+                  "Geolocation lookup")
+        try:
+            geo_result = GeoLocator(target, evidence=evidence).locate()
+            results["geo"] = geo_result
+        except Exception as e:
+            results["geo"] = {"error": str(e)}
+        step_done("Geolocation lookup")
+    else:
+        results["geo"] = {}
 
     # ----------------------------------------------------------------
     # 1) NETWORK
@@ -595,8 +622,8 @@ if run:
     # ----------------------------------------------------------------
     # TABS
     # ----------------------------------------------------------------
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
-        ["Network", "Web", "DNS", "Recon / API", "All Findings"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+        ["Network", "Web", "DNS", "Recon / API", "All Findings", "Location"])
 
     # ================== NETWORK TAB ==================
     with tab1:
@@ -811,6 +838,67 @@ if run:
                         st.code("\n".join(cmds), language="text")
         else:
             st.info("No findings.")
+
+    # ================== LOCATION TAB ==================
+    with tab6:
+        geo = results.get("geo", {}) or {}
+        if not geo:
+            st.info("Geolocation vector not run.")
+        elif geo.get("error") and not geo.get("locations"):
+            st.error(f"Geolocation error: {geo['error']}")
+        else:
+            primary = geo.get("primary") or {}
+            ws = geo.get("web_server") or {}
+            g1, g2, g3, g4 = st.columns(4)
+            g1.metric("Hostname", geo.get("hostname", "-"))
+            g2.metric("Resolved IPs", len(geo.get("resolved_ips", [])))
+            g3.metric("Country", primary.get("country_code", "-") or "-")
+            g4.metric("Web Port", ws.get("port", "-"))
+
+            if geo.get("summary"):
+                st.markdown(f"**📍 Where the target is hosted:** {geo['summary']}")
+
+            locs = geo.get("locations", [])
+            rows = [{
+                "IP": l.get("ip"),
+                "City": l.get("city", ""),
+                "Region": l.get("region", ""),
+                "Country": l.get("country", ""),
+                "Lat/Lon": (f"{l.get('latitude')}, {l.get('longitude')}"
+                            if l.get("found") else ""),
+                "Timezone": l.get("timezone", ""),
+                "ISP": l.get("isp", ""),
+                "Organization (hosting)": l.get("organization", ""),
+                "ASN": l.get("asn", ""),
+                "Reverse DNS": l.get("reverse_dns", ""),
+                "Source": l.get("source", ""),
+                "Note": l.get("note") or l.get("error") or "",
+            } for l in locs]
+            if rows:
+                st.markdown("#### IP Geolocation & Hosting Details")
+                st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                             hide_index=True)
+            else:
+                st.warning(geo.get("error") or "No IPs resolved for this target.")
+
+            st.markdown("#### Website Setup")
+            if ws:
+                w_loc = ", ".join(x for x in
+                                  (primary.get("city"), primary.get("region"),
+                                   primary.get("country")) if x)
+                st.markdown(
+                    f"- **URL served:** `{ws.get('url', '-')}` "
+                    f"(port **{ws.get('port', '-')}**, "
+                    f"HTTP status {ws.get('status', 'n/a')})\n"
+                    f"- **Web server software:** `{ws.get('server') or 'unknown'}`\n"
+                    f"- **Hosting provider:** "
+                    f"`{primary.get('organization') or primary.get('isp') or 'unknown'}` "
+                    f"({primary.get('asn') or 'no ASN'})\n"
+                    f"- **Physical location:** `{w_loc or 'unknown'}`"
+                    + (f"\n- **Timezone:** `{primary.get('timezone')}`"
+                       if primary.get("timezone") else ""))
+            else:
+                st.info("Website endpoint details unavailable.")
 
     # ----------------------------------------------------------------
     # MULTI-FORMAT EXPORTS

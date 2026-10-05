@@ -11,6 +11,7 @@ from web_scanner import WebScanner, DNSScanner
 from nuclei_scanner import NucleiScanner
 from subdomain_scanner import SubdomainScanner
 from api_scanner import APIScanner
+from geo_locator import GeoLocator
 from scoring import enrich_findings
 from ai_engine import AIEngine
 from report_gen import generate_report
@@ -58,6 +59,16 @@ def main():
     evidence = EvidenceStore(scan_id)
     findings = FindingSet()
     results = {"target": target, "scan_id": scan_id}
+
+    # Step 0: IP geolocation & hosting lookup (where the website is set up)
+    if "no-geo" not in opts:
+        print("[*] IP Geolocation & Hosting Lookup...")
+        try:
+            results["geo"] = GeoLocator(target, evidence=evidence).locate()
+            print(f"    -> {results['geo'].get('summary') or 'no location data'}")
+        except Exception as e:
+            results["geo"] = {"error": str(e)}
+            print(f"[!] geolocation error: {e}")
 
     if scan_network:
         print("[*] Network scan (nmap + vulners)...")

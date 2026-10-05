@@ -348,3 +348,38 @@ class TestSoft404AndSignatureValidation:
         assert base["title"] == "Default Page"
         # cached and reused
         assert ws.soft404_baseline is base
+
+
+class TestGeoLocator:
+    def test_extract_host_variants(self):
+        from geo_locator import extract_host
+        assert extract_host("https://Example.com:8443/path?q=1") == "example.com"
+        assert extract_host("scanme.nmap.org") == "scanme.nmap.org"
+        assert extract_host("http://10.0.0.5") == "10.0.0.5"
+        assert extract_host("") == ""
+
+    def test_resolve_ips_literal(self):
+        from geo_locator import resolve_ips
+        assert resolve_ips("192.168.1.1") == ["192.168.1.1"]
+        assert resolve_ips("") == []
+
+    def test_private_ip_not_looked_up(self):
+        from geo_locator import geolocate_ip
+        for ip in ("127.0.0.1", "10.10.10.10", "192.168.5.5", "169.254.1.1"):
+            r = geolocate_ip(ip)
+            assert r.get("private") and not r.get("found"), (ip, r)
+
+    def test_hosting_summary_fallback(self):
+        from geo_locator import hosting_summary
+        assert hosting_summary({}) == "Unknown"
+        assert hosting_summary({"found": False, "error": "boom"}) == "boom"
+        s = hosting_summary({"found": True, "city": "X", "country": "Y",
+                             "organization": "Z", "asn": "AS1"})
+        assert "X" in s and "Z" in s and "AS1" in s
+
+    def test_geolocator_private_target(self):
+        from geo_locator import GeoLocator
+        g = GeoLocator("192.168.5.5").locate()
+        assert g["hostname"] == "192.168.5.5"
+        assert g["resolved_ips"] == ["192.168.5.5"]
+        assert g["locations"][0].get("private")

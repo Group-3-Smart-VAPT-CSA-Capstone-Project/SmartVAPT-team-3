@@ -1,0 +1,69 @@
+{
+  "target": "scanme.nmap.org",
+  "hostname": "scanme.nmap.org",
+  "resolved_ips": [
+    "45.33.32.156",
+    "2600:3c01::f03c:91ff:fe18:bb2f"
+  ],
+  "locations": [
+    {
+      "ip": "45.33.32.156",
+      "found": true,
+      "source": "ipwho.is",
+      "country": "United States",
+      "country_code": "US",
+      "region": "California",
+      "city": "San Francisco",
+      "postal_code": "94119",
+      "latitude": 37.7749324,
+      "longitude": -122.4194247,
+      "timezone": "America/Los_Angeles",
+      "isp": "Akamai Technologies, Inc.",
+      "organization": "Linode",
+      "asn": "AS63949",
+      "reverse_dns": "linode.com"
+    },
+    {
+      "ip": "2600:3c01::f03c:91ff:fe18:bb2f",
+      "found": true,
+      "source": "ipwho.is",
+      "country": "United States",
+      "country_code": "US",
+      "region": "California",
+      "city": "San Francisco",
+      "postal_code": "94119",
+      "latitude": 37.7749324,
+      "longitude": -122.4194247,
+      "timezone": "America/Los_Angeles",
+      "isp": "Akamai Technologies, Inc.",
+      "organization": "Linode",
+      "asn": "AS63949",
+      "reverse_dns": "linode.com"
+    }
+  ],
+  "primary": {
+    "ip": "45.33.32.156",
+    "found": true,
+    "source": "ipwho.is",
+    "country": "United States",
+    "country_code": "US",
+    "region": "California",
+    "city": "San Francisco",
+    "postal_code": "94119",
+    "latitude": 37.7749324,
+    "longitude": -122.4194247,
+    "timezone": "America/Los_Angeles",
+    "isp": "Akamai Technologies, Inc.",
+    "organization": "Linode",
+    "asn": "AS63949",
+    "reverse_dns": "linode.com"
+  },
+  "summary": "San Francisco, California, United States \u00b7 Linode (AS63949)",
+  "web_server": {
+    "url": "http://scanme.nmap.org",
+    "port": 80,
+    "status": 200,
+    "server": "Apache/2.4.7 (Ubuntu)",
+    "final_url": "http://scanme.nmap.org/"
+  }
+}
