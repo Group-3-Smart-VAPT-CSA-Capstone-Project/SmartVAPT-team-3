@@ -367,6 +367,43 @@ def _render_appendix(pdf, scan_data: dict):
     kv("Target", scan_data.get("target", "N/A"))
     kv("Scan ID", scan_data.get("scan_id", "N/A"))
 
+    # ---------- Geolocation / Hosting ----------
+    geo = scan_data.get("geo", {}) or {}
+    if geo:
+        h2("A1. IP Location & Hosting (where the website is set up)")
+        kv("Hostname", str(geo.get("hostname", "N/A")))
+        kv("Resolved IP(s)", ", ".join(geo.get("resolved_ips", [])) or "none")
+        primary = geo.get("primary") or {}
+        if primary.get("found"):
+            loc = ", ".join(x for x in (primary.get("city"),
+                                        primary.get("region"),
+                                        primary.get("country")) if x)
+            kv("Location", loc or "unknown")
+            kv("Coordinates", f"{primary.get('latitude')}, "
+                              f"{primary.get('longitude')}")
+            kv("Timezone", str(primary.get("timezone", "")))
+            kv("ISP", str(primary.get("isp", "")))
+            kv("Hosting Provider",
+               f"{primary.get('organization', '')} ({primary.get('asn', '')})")
+            if primary.get("reverse_dns"):
+                kv("Reverse DNS", str(primary.get("reverse_dns")))
+            kv("Lookup Source", str(primary.get("source", "")))
+        else:
+            body(geo.get("error") or primary.get("note")
+                 or "Geolocation unavailable.")
+        ws = geo.get("web_server") or {}
+        if ws:
+            body(f"Website served at {ws.get('url', 'N/A')} on port "
+                 f"{ws.get('port', 'N/A')}"
+                 + (f" (HTTP {ws.get('status')})" if ws.get("status") else "")
+                 + (f"; server software: {ws.get('server')}"
+                    if ws.get("server") else ""))
+        extra = [l for l in geo.get("locations", [])[1:] if l.get("found")]
+        for l in extra[:5]:
+            body(f"Additional IP {l.get('ip')}: "
+                 f"{', '.join(x for x in (l.get('city'), l.get('country')) if x)}"
+                 f" · {l.get('organization') or l.get('isp') or 'unknown'}")
+
     # ---------- Network ----------
     net = scan_data.get("network", {}) or {}
     h2("B. Network Scan")

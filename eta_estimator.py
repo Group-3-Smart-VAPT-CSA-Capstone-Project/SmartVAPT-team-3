@@ -121,6 +121,7 @@ class ScanEta:
 
         # name -> (static worst-case seconds, history key suffix)
         vectors = [
+            ("Geolocation lookup",      10.0, "geo",     False),
             ("Network scan (Nmap)",   600.0, "network", True),
             ("Web application audit", 180.0, "web",     True),
             ("DNS / email security",   20.0, "dns",     True),

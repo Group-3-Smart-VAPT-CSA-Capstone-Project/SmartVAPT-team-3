@@ -1,4 +1,4 @@
-"""smartvapt_fixes.py — drop-in accuracy fixes for the SmartVAPT scanner
+"""smartvapt_fixes.py - drop-in accuracy fixes for the SmartVAPT scanner
 and report generator.
 
 Addresses the three accuracy problems raised in the review of
@@ -15,7 +15,7 @@ SmartVAPT_20261001_044715.pdf (scanme.nmap.org, headline "Critical 9.5/10"):
    GET issued directly against http://host (allow_redirects=False), then
    follows separately.  The finding is only returned when plain HTTP
    really serves content (status 200) without upgrading to https://.
-   A 301/308 whose Location resolves to https:// verifies the redirect —
+   A 301/308 whose Location resolves to https:// verifies the redirect -
    exactly the case the old code got wrong when it judged the FINAL url
    instead of the response's status + Location header.
    attack_paths_for() also generates the finding's attack paths from the
@@ -30,7 +30,7 @@ SmartVAPT_20261001_044715.pdf (scanme.nmap.org, headline "Critical 9.5/10"):
    installed package version with the fixed one via
    ``dpkg --compare-versions``, and marks patched CVEs as "patched"
    (excluded from findings) instead of "vulnerable".  When the lookup
-   cannot be completed the CVE stays "unconfirmed, banner-based" — never
+   cannot be completed the CVE stays "unconfirmed, banner-based" - never
    silently promoted to confirmed.
 
 Network-dependent helpers degrade gracefully: any failure keeps the
@@ -68,9 +68,15 @@ SEVERITY_ORDER = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
 # The Ubuntu part is either a Debian revision tail ('3ubuntu0.17') or a
 # standalone MM.YY release number ('Ubuntu 22.04').
 _OPENSSH_UBUNTU_RE = re.compile(
-    r"OpenSSH[ _](?P<up>\d+\.\d+[a-z]?\d*)"            # upstream: 8.9p1/9.3p2
-    r"[\s_-]+Ubuntu[\s_-]+(?:(?P<rev>\d+)ubuntu\.?(?P<revb>\d+(?:\.\d+)?)|(?P<rel>\d+\.\d+))",
+    r"OpenSSH[ _](?P<up>\d+\.\d+[a-z]?\d*(?:p\d+)?)"   # upstream: 8.9p1/6.6.1p1
+    # Debian revisions may be multi-digit ('2ubuntu2.13', '3ubuntu0.17') and
+    # the release tail may carry dots/spaces ('Ubuntu 14.04.6 LTS').
+    r"[\s_-]+Ubuntu[\s_-]+(?P<tail>[^,;()]*?)"
+    r"(?=\s*(?:Ubuntu Linux|Linux|\(|~\d{2}\.\d{2}|\s*[,;]|$))",
     re.I)
+_UBUNTU_TAIL_REV_RE = re.compile(
+    r"(?P<rev>\d+)ubuntu\.?(?P<revb>\d+(?:\.\d+)?)", re.I)
+_UBUNTU_TAIL_REL_RE = re.compile(r"(?P<rel>\d{2}\.\d{2}(?:\.\d+)?)")
 _HMU_RE = re.compile(r"[~ ](\d{2}\.\d{2})(?:\.\d+)?$")  # '...~22.04.1' HMU suffix
 
 # Stable releases we map unknown interim suffixes onto (newest first).
@@ -123,8 +129,12 @@ def parse_openssh_banner(banner: str) -> Optional[Dict[str, object]]:
     # ('3ubuntu0.17' in 'OpenSSH 8.9p1 Ubuntu 3ubuntu0.17'): Ubuntu's
     # security-tracker fixed-version strings look like
     # '1:8.9p1-3ubuntu0.10', so epoch + upstream + exact revision are all
-    # needed for a meaningful dpkg comparison.
-    base, revb = m.group("rev"), m.group("revb")
+    # needed for a meaningful dpkg comparison.  Multi-digit bases and
+    # multi-dot tails ('2ubuntu2.13') are handled by the tail regexes.
+    tail = (m.group("tail") or "").strip()
+    tm = _UBUNTU_TAIL_REV_RE.search(tail)
+    base, revb = (tm.group("rev"), tm.group("revb")) if tm else ("", "")
+    rel_m = _UBUNTU_TAIL_REL_RE.search(tail) if not tm else None
     if base:
         # The banner tail '3ubuntu0.17' splits as rev='3', revb='0.17';
         # rejoin WITHOUT inserting an extra dot (the '.' belongs to revb).
@@ -132,8 +142,9 @@ def parse_openssh_banner(banner: str) -> Optional[Dict[str, object]]:
     else:
         deb_rev = ""
     rev_tail = revb or ""
-    if m.group("rel"):
-        # 'Ubuntu 22.04' style — release number, no Debian revision tail.
+    rel = rel_m.group("rel") if rel_m else ""
+    if not base and rel:
+        # 'Ubuntu 22.04' style - release number, no Debian revision tail.
         # An exact comparison is not possible, so keep package_version
         # empty and let the caller stay 'unconfirmed' rather than
         # comparing against a fabricated string.
@@ -142,7 +153,7 @@ def parse_openssh_banner(banner: str) -> Optional[Dict[str, object]]:
     release = _ubuntu_release_from_suffix(hmu.group(1) if hmu else None,
                                           base, _upstream_major(up))
     if not release:                        # MM.YY given directly in banner
-        release = m.group("rel") or ""
+        release = rel.rstrip(".")[:5] if rel else ""
     pkg = f"1:{up}-{deb_rev}" if deb_rev else ""
     return {
         "upstream": up,
@@ -189,14 +200,36 @@ def _ubuntu_release_from_suffix(hmu: Optional[str], base: str,
 
 
 # ----------------------------------------------------------------------
-# 2. adjust_severity — confidence-driven demotion
+# 2. adjust_severity - confidence-driven demotion
 # ----------------------------------------------------------------------
 
 _CONF_RANK = {"confirmed": 3, "likely": 2, "unconfirmed": 1}
 
 
 def confidence_for(finding: dict) -> str:
-    """Derive the confidence level of a finding from its own evidence."""
+    """Derive the confidence level of a finding from its own evidence.
+
+    Precedence matters for CVE findings: a banner/version match is a
+    hypothesis, never a confirmed vulnerability - even when an earlier
+    pipeline stage stamped ``confirmed=True`` / ``confidence='confirmed'``
+    on the dict (those stamps only mean "the scanner observed this
+    reliably", not that the flaw was actively verified).  Ubuntu-tracker
+    results win when present: 'vulnerable' -> likely, 'patched'/'not
+    affected' -> patched.  Only CVEs carrying a CVSS vector *and* no
+    distro-backport caveat qualify as 'confirmed'.
+    """
+    if finding.get("cve"):
+        v = finding.get("ubuntu_validation") or {}
+        vstat = str(v.get("status") or "").lower()
+        if vstat == "patched":
+            return "patched"
+        if vstat == "vulnerable":
+            return "likely"
+        explicit = str(finding.get("confidence") or "").lower()
+        if ("unconfirmed" not in explicit and finding.get("cvss_vector")
+                and not finding.get("cve_note")):
+            return "confirmed"   # scored advisory, not a distro-build guess
+        return "unconfirmed"     # banner/version match only
     if finding.get("confirmed") is True:
         return "confirmed"
     conf = str(finding.get("confidence") or "").lower()
@@ -231,7 +264,7 @@ def adjust_severity(finding: dict) -> dict:
     if conf != "confirmed" and rank > SEVERITY_ORDER["medium"]:
         finding["severity"] = "medium"
         finding["severity_downgrade_reason"] = (
-            "Banner/version match only — not confirmed by an active check "
+            "Banner/version match only - not confirmed by an active check "
             "(Ubuntu distro builds backport fixes without changing the "
             "upstream version string)")
     if surface != "server" and rank > SEVERITY_ORDER["medium"]:
@@ -248,7 +281,7 @@ def adjust_severity(finding: dict) -> dict:
 
 
 # ----------------------------------------------------------------------
-# 3. check_http_to_https — real redirect probe (false-positive fix)
+# 3. check_http_to_https - real redirect probe (false-positive fix)
 # ----------------------------------------------------------------------
 
 def _resolve_location(final_url: str, location: str) -> str:
@@ -261,14 +294,14 @@ def check_http_to_https(host: str, timeout: int = DEFAULT_TIMEOUT,
     """Probe whether plain HTTP actually upgrades to HTTPS.
 
     Returns a dict:
-      redirects_ok : bool  — True when NOT vulnerable
+      redirects_ok : bool  - True when NOT vulnerable
       vulnerable   : bool
       status       : int|None  (of the direct http:// GET)
       location     : str  (Location header, resolved)
       final_url    : str  (after following the chain)
       detail       : str
       attack_paths : list generated FROM the actual check (see
-                     attack_paths_for) — never the canned TLS-cipher text.
+                     attack_paths_for) - never the canned TLS-cipher text.
 
     Only raises the finding when plain HTTP really returns 200 (content
     served over cleartext).  30x to https://, connection refused, or a
@@ -286,7 +319,7 @@ def check_http_to_https(host: str, timeout: int = DEFAULT_TIMEOUT,
                       headers=UA)
     except requests.RequestException as e:
         out["detail"] = f"Plain HTTP probe failed ({type(e).__name__}); " \
-                        "no cleartext content observed — finding not raised."
+                        "no cleartext content observed - finding not raised."
         out["attack_paths"] = attack_paths_for(out)
         return out
 
@@ -307,7 +340,7 @@ def check_http_to_https(host: str, timeout: int = DEFAULT_TIMEOUT,
         if upgraded:
             out["detail"] = (f"Verified: {direct.status_code} "
                              f"{url} -> {out['location'] or out['final_url']}"
-                             " (HTTPS). Redirect present — not vulnerable.")
+                             " (HTTPS). Redirect present - not vulnerable.")
             out["attack_paths"] = attack_paths_for(out)
             return out
         out["redirects_ok"] = False
@@ -318,10 +351,10 @@ def check_http_to_https(host: str, timeout: int = DEFAULT_TIMEOUT,
         out["redirects_ok"] = False
         out["vulnerable"] = True
         out["detail"] = (f"Plain HTTP returns 200 ({len(direct.content)} "
-                         "bytes) with no upgrade — cleartext content served.")
+                         "bytes) with no upgrade - cleartext content served.")
     else:
         out["detail"] = f"HTTP answered {direct.status_code}; no cleartext " \
-                        "content served — finding not raised."
+                        "content served - finding not raised."
     out["attack_paths"] = attack_paths_for(out)
     return out
 
@@ -347,7 +380,7 @@ def attack_paths_for(result: Dict) -> List[str]:
 
 
 # ----------------------------------------------------------------------
-# 4. validate_ssh_cve — Ubuntu CVE tracker cross-check
+# 4. validate_ssh_cve - Ubuntu CVE tracker cross-check
 # ----------------------------------------------------------------------
 
 _USEC_API = "https://ubuntu.com/security/cves/{cve}.json"
@@ -391,7 +424,7 @@ def get_ubuntu_cve_status(cve_id: str, series: str,
     no released fix to compare against (unfixed / not-affected / unknown).
 
     Primary source: ubuntu.com/security/cves JSON API.  Verified live
-    against CVE-2024-6387 — the real shape is::
+    against CVE-2024-6387 - the real shape is::
 
         {"packages": [{"name": "openssh",
                        "statuses": [{"release_codename": "jammy",
@@ -403,7 +436,7 @@ def get_ubuntu_cve_status(cve_id: str, series: str,
     version carried in 'description'.  Statuses 'not-affected'/'DNE' are
     recorded as NOT_AFFECTED so callers can report 'patched' without a
     version comparison; 'needed'/'pending'/'deferred' map to None (the
-    release is unfixed — banner matching stays unconfirmed rather than
+    release is unfixed - banner matching stays unconfirmed rather than
     silently promoted).  Fallback for a missing 'released' entry:
     Launchpad published versions of the source package (latest candidate).
     Cached per (series, cve).
@@ -447,7 +480,7 @@ def get_ubuntu_cve_status(cve_id: str, series: str,
                         # status (no released fix found for this release)
                         if fixed is None:
                             fixed = NOT_AFFECTED
-            # NOTE: no blind Launchpad fallback inside the loop — an
+            # NOTE: no blind Launchpad fallback inside the loop - an
             # arbitrary "latest published version" would fabricate a
             # fixed-version string for CVEs the tracker marks needed/
             # pending/unfixed, which is exactly the over-reporting this
@@ -514,21 +547,21 @@ def validate_ssh_cve(cve_id: str, banner: str,
     if fixed == NOT_AFFECTED:
         out["status"] = "patched"
         out["detail"] = (f"Ubuntu security data marks {info['series']} as "
-                         "not-affected for this CVE — not vulnerable.")
+                         "not-affected for this CVE - not vulnerable.")
         return out
     if fixed is None:
         out["detail"] = ("Ubuntu tracker/Launchpad unreachable or CVE not "
-                         "listed as fixed for this release — unconfirmed, "
+                         "listed as fixed for this release - unconfirmed, "
                          "banner-based.")
         return out
     if not installed:
         out["detail"] = ("Banner carries no Debian revision tail; cannot "
-                         "compare versions — unconfirmed, banner-based.")
+                         "compare versions - unconfirmed, banner-based.")
         return out
     older = dpkg_compare(installed, "lt", fixed)
     if older is None:
         out["detail"] = (f"dpkg unavailable; cannot compare {installed} vs "
-                         f"fixed {fixed} — unconfirmed, banner-based.")
+                         f"fixed {fixed} - unconfirmed, banner-based.")
         return out
     if older:
         out["status"] = "vulnerable"
@@ -537,7 +570,7 @@ def validate_ssh_cve(cve_id: str, banner: str,
     else:
         out["status"] = "patched"
         out["detail"] = (f"Installed {installed} >= fixed {fixed} per Ubuntu "
-                         f"security data ({info['series']}) — distro "
+                         f"security data ({info['series']}) - distro "
                          "backport already applied; not vulnerable.")
     return out
 
@@ -596,7 +629,7 @@ def apply_validations(findings: List[dict], banner: str,
                 f["confidence"] = "likely (Ubuntu tracker confirms unfixed)"
                 # Vendor-confirmed unfixed: keep the CVSS severity for
                 # server-surface CVEs, but client/config/protocol-surface
-                # flaws are never direct server risk � cap at medium.
+                # flaws are never direct server risk - cap at medium.
                 if f.get("cve_surface") not in (None, "server"):
                     from findings import SEVERITY_ORDER
                     if SEVERITY_ORDER.get(str(f.get("severity", "")).lower(), 0) \

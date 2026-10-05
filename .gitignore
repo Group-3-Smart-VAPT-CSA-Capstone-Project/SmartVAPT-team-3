@@ -1,9 +1,23 @@
-__pycache__/
-venv/
-.pytest_cache/
+# Compiled and build artifacts
 *.pyc
+__pycache__/
+
+# Environment and secrets
+.env
+.env.local
+.env.*
+
+# Editor/IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs and temp files
 *.log
-evidence/
-results_*.json
+*.tmp
+
+# Generated reports and evidence (specific to this project's output)
 SmartVAPT_*.pdf
-Screenshot.jpeg
+results_*.json
+evidence/
