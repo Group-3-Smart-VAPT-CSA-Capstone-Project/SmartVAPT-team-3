@@ -1,12 +1,16 @@
 """Tests for the feature batch: auth headers, CVSS scoring, playbooks,
 exporters (SARIF/HTML/baseline/diff), nuclei/gobuster command wiring."""
 import json
-import pytest
 
-from web_scanner import WebScanner, parse_auth_headers
-from api_scanner import APIScanner
-from scoring import cvss_v31_base_score, severity_from_cvss, playbook_for, enrich_findings
 import exporters
+from api_scanner import APIScanner
+from scoring import (
+    cvss_v31_base_score,
+    enrich_findings,
+    playbook_for,
+    severity_from_cvss,
+)
+from web_scanner import WebScanner, parse_auth_headers
 
 
 class TestAuthHeaders:
@@ -83,7 +87,8 @@ class TestPlaybooks:
 
 
 class TestExporters:
-    RESULTS = {
+    # read-only fixtures shared by the tests below (never mutated)
+    RESULTS: dict = {  # noqa: RUF012
         "target": "example.com", "scan_id": "t1",
         "findings": [{"id": "F1", "vector": "web", "title": "Missing header",
                       "severity": "medium", "description": "CSP missing",
@@ -91,17 +96,19 @@ class TestExporters:
                       "owasp": "A05:2021"}],
         "network": {}, "web": {}, "dns": {},
     }
-    AI = {"executive_summary": "s", "overall_risk": "Medium", "risk_score": 50,
-          "top_findings": [], "technical_remediation": [], "conclusion": ""}
+    AI: dict = {"executive_summary": "s", "overall_risk": "Medium", "risk_score": 50,  # noqa: RUF012
+                "top_findings": [], "technical_remediation": [], "conclusion": ""}
 
     def test_json_export(self, tmp_path):
         p = exporters.export_json(self.RESULTS, self.AI, str(tmp_path / "o.json"))
-        data = json.load(open(p))
+        with open(p) as fh:
+            data = json.load(fh)
         assert data["findings"][0]["id"] == "F1"
 
     def test_sarif_export_valid_structure(self, tmp_path):
         p = exporters.export_sarif(self.RESULTS, str(tmp_path / "o.sarif"))
-        sarif = json.load(open(p))
+        with open(p) as fh:
+            sarif = json.load(fh)
         assert sarif["$schema"].endswith(".json")
         run = sarif["runs"][0]
         assert run["tool"]["driver"]["name"]
@@ -110,7 +117,8 @@ class TestExporters:
 
     def test_html_export(self, tmp_path):
         p = exporters.export_html(self.RESULTS, self.AI, str(tmp_path / "o.html"))
-        html = open(p).read()
+        with open(p) as fh:
+            html = fh.read()
         assert "<html" in html.lower() and "Missing header" in html
 
     def test_baseline_save_load_diff(self, tmp_path):
@@ -264,7 +272,6 @@ class TestSoft404AndSignatureValidation:
 
     # ---- end-to-end probe_sensitive_paths with mocked responses -----------
     def _mk_resp(self, status, body=b"", ctype=None):
-        import requests
 
         class R:
             def __init__(self):
@@ -279,7 +286,6 @@ class TestSoft404AndSignatureValidation:
         return R()
 
     def _fake_get_factory(self, routes, soft404_body):
-        import requests
 
         def fake_get(url, **kw):
             path = url.split("://", 1)[-1].split("/", 1)[1]
@@ -295,9 +301,9 @@ class TestSoft404AndSignatureValidation:
         soft_body = b"<html><head><title>Page Not Found</title></head>" + b"x" * 1781
         real_env = self._mk_resp(200, b"APP_KEY=base64:abcdef=\nDB_HOST=localhost\n",
                                  "text/plain")
-        html_like_env = self._mk_resp(200, soft_body, "text/html")  # same size as baseline
+        self._mk_resp(200, soft_body, "text/html")  # same size as baseline
         zip_as_html = self._mk_resp(200, b"<html>coming soon</html>", "text/html")
-        real_zip = self._mk_resp(200, b"PK\x03\x04" + b"\x00" * 500, "application/zip")
+        self._mk_resp(200, b"PK\x03\x04" + b"\x00" * 500, "application/zip")
         bogus_id_rsa = self._mk_resp(200, b"<pre>Directory listing</pre>", "text/plain")
         routes = {".env": real_env, "backup.zip": zip_as_html,
                   "id_rsa": bogus_id_rsa}

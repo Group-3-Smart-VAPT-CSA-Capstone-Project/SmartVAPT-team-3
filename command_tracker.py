@@ -18,17 +18,16 @@ import re
 import subprocess
 import threading
 import time
-from typing import Dict, List, Optional
 
 
 class CommandTracker:
     def __init__(self, max_entries: int = 50):
         self._lock = threading.Lock()
-        self._entries: List[Dict] = []
+        self._entries: list[dict] = []
         self._max = max_entries
 
     # ------------------------------------------------------------------ record
-    def start(self, cmd: list, desc: str, proc: Optional[subprocess.Popen] = None) -> Dict:
+    def start(self, cmd: list, desc: str, proc: subprocess.Popen | None = None) -> dict:
         """Register a launched command. Returns the entry dict."""
         entry = {
             "cmd": [str(c) for c in cmd],
@@ -44,12 +43,12 @@ class CommandTracker:
                 del self._entries[: len(self._entries) - self._max]
         return entry
 
-    def finish(self, entry: Dict, rc=None):
+    def finish(self, entry: dict, rc=None):
         entry["end"] = time.time()
         entry["rc"] = rc
 
     # ------------------------------------------------------------------- query
-    def snapshot(self) -> List[Dict]:
+    def snapshot(self) -> list[dict]:
         """Copy of all entries with liveness resolved (safe for UI rendering)."""
         now = time.time()
         out = []
@@ -107,9 +106,7 @@ def describe(cmd: list) -> str:
             return True
         if "%" in t or "/" in t:                             # CIDR / path
             return True
-        if "." in t and not t.startswith("-"):               # hostname/domain
-            return True
-        return False
+        return "." in t and not t.startswith("-")            # hostname/domain
 
     target = ""
     for i, a in enumerate(rest):
@@ -132,10 +129,10 @@ def describe(cmd: list) -> str:
     return f"{tool} {mode.strip()} running".strip()
 
 
-def run_logged(cmd: list, *, desc: str = None,
+def run_logged(cmd: list, *, desc: str | None = None,
                stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
                text: bool = True, bufsize: int = 1,
-               popen: bool = True, timeout: Optional[float] = None,
+               popen: bool = True, timeout: float | None = None,
                **kwargs):
     """Launch *cmd* through subprocess and announce it in the tracker.
 
@@ -152,7 +149,7 @@ def run_logged(cmd: list, *, desc: str = None,
         return proc
     try:
         res = subprocess.run(cmd, capture_output=True, text=True,
-                             timeout=timeout, **kwargs)
+                             timeout=timeout, check=False, **kwargs)
         tracker.finish(tracker.start(cmd, d, None), rc=res.returncode)
         return res
     except subprocess.TimeoutExpired:

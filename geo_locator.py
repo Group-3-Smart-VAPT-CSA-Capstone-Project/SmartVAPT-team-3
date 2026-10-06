@@ -17,7 +17,7 @@ unreachable.
 import ipaddress
 import re
 import socket
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 import requests
@@ -43,7 +43,7 @@ def extract_host(target: str) -> str:
     return host
 
 
-def resolve_ips(host: str) -> List[str]:
+def resolve_ips(host: str) -> list[str]:
     """Resolve a hostname to every IPv4/IPv6 address it points at.
 
     If the target is already an IP literal it is returned as-is.
@@ -56,7 +56,7 @@ def resolve_ips(host: str) -> List[str]:
         return [host]
     except ValueError:
         pass
-    ips: List[str] = []
+    ips: list[str] = []
     try:
         for info in socket.getaddrinfo(host, None):
             ip = info[4][0]
@@ -76,7 +76,7 @@ def _is_private(ip: str) -> bool:
             or a.is_multicast or a.is_reserved)
 
 
-def _fetch_ipapi(ip: str, timeout: int) -> Optional[Dict[str, Any]]:
+def _fetch_ipapi(ip: str, timeout: int) -> dict[str, Any] | None:
     """ip-api.com line endpoint — returns dict or None on failure."""
     try:
         r = requests.get(_IPAPI_URL.format(ip=ip), timeout=timeout)
@@ -111,7 +111,7 @@ def _fetch_ipapi(ip: str, timeout: int) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _fetch_ipwhois(ip: str, timeout: int) -> Optional[Dict[str, Any]]:
+def _fetch_ipwhois(ip: str, timeout: int) -> dict[str, Any] | None:
     """ipwho.is JSON fallback — returns dict or None on failure."""
     try:
         r = requests.get(_IPOOIS_URL.format(ip=ip), timeout=timeout)
@@ -141,9 +141,9 @@ def _fetch_ipwhois(ip: str, timeout: int) -> Optional[Dict[str, Any]]:
         return None
 
 
-def geolocate_ip(ip: str, timeout: int = _DEFAULT_TIMEOUT) -> Dict[str, Any]:
+def geolocate_ip(ip: str, timeout: int = _DEFAULT_TIMEOUT) -> dict[str, Any]:
     """Look up one IP's location + hosting provider. Never raises."""
-    result: Dict[str, Any] = {"ip": ip, "found": False}
+    result: dict[str, Any] = {"ip": ip, "found": False}
     if not ip:
         result["error"] = "No IP provided."
         return result
@@ -162,7 +162,7 @@ def geolocate_ip(ip: str, timeout: int = _DEFAULT_TIMEOUT) -> Dict[str, Any]:
     return result
 
 
-def hosting_summary(info: Dict[str, Any]) -> str:
+def hosting_summary(info: dict[str, Any]) -> str:
     """One-line human summary: city, region, country · ISP / Org (ASN)."""
     if not info or not info.get("found"):
         return info.get("note") or info.get("error") or "Unknown"
@@ -184,7 +184,7 @@ class GeoLocator:
         self.evidence = evidence
         self.timeout = timeout
 
-    def locate(self) -> Dict[str, Any]:
+    def locate(self) -> dict[str, Any]:
         """Resolve the target host to IPs and geolocate each one.
 
         Returns::
@@ -200,7 +200,7 @@ class GeoLocator:
             }
         """
         host = extract_host(self.target)
-        out: Dict[str, Any] = {"target": self.target, "hostname": host,
+        out: dict[str, Any] = {"target": self.target, "hostname": host,
                                "resolved_ips": [], "locations": [],
                                "primary": {}, "summary": "",
                                "web_server": {}}
@@ -233,7 +233,7 @@ class GeoLocator:
                 pass      # evidence store must never break the scan
         return out
 
-    def _web_server_info(self, host: str) -> Dict[str, Any]:
+    def _web_server_info(self, host: str) -> dict[str, Any]:
         """Describe the web endpoint of the target (scheme/port/server)."""
         t = (self.target or "").strip()
         scheme = "https" if t.startswith("https://") else \
@@ -259,7 +259,7 @@ class GeoLocator:
                                 "status": r.status_code,
                                 "server": server,
                                 "final_url": r.url}
-                except Exception:
+                except requests.RequestException:
                     continue
             return {"url": f"http://{host}", "port": 80, "status": None,
                     "server": "", "final_url": ""}

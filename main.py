@@ -1,23 +1,23 @@
-import streamlit as st
-import pandas as pd
 import os
 import time
-from datetime import datetime
 
-from network_scanner import NetworkScanner
-from geo_locator import GeoLocator
-from web_scanner import WebScanner, DNSScanner, parse_auth_headers
-from nuclei_scanner import NucleiScanner
-from subdomain_scanner import SubdomainScanner
-from api_scanner import APIScanner
-from scoring import enrich_findings
+import pandas as pd
+import streamlit as st
+
 import exporters
 from ai_engine import AIEngine
-from report_gen import generate_report
-from evidence import EvidenceStore
-from findings import FindingSet
+from api_scanner import APIScanner
 from command_tracker import tracker
 from eta_estimator import ScanEta, fmt_eta
+from evidence import EvidenceStore, new_scan_id
+from findings import FindingSet
+from geo_locator import GeoLocator
+from network_scanner import NetworkScanner
+from nuclei_scanner import NucleiScanner
+from report_gen import generate_report
+from scoring import enrich_findings
+from subdomain_scanner import SubdomainScanner
+from web_scanner import DNSScanner, WebScanner, parse_auth_headers
 
 st.set_page_config(page_title="SmartVAPT", page_icon="SHIELD", layout="wide")
 st.title("SmartVAPT")
@@ -95,7 +95,7 @@ if run:
         st.stop()
 
     progress = st.progress(0, text="Initializing...")
-    scan_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    scan_id = new_scan_id()
     evidence = EvidenceStore(scan_id)
     findings = FindingSet()
     results = {"target": target, "scan_id": scan_id}
@@ -610,11 +610,14 @@ if run:
     st.markdown("### Findings by Vector")
     vector_counts: dict = {}
     for f in enriched:
-        v = str(f.get("vector", "other"))
+        v = str(f.get("vector", "other") or "other")
         vector_counts[v] = vector_counts.get(v, 0) + 1
-    vector_df = pd.DataFrame(
-        [{"Vector": k, "Count": v} for k, v in sorted(vector_counts.items())])
-    st.bar_chart(vector_df.set_index("Vector"))
+    if vector_counts:
+        vector_df = pd.DataFrame(
+            [{"Vector": k, "Count": v} for k, v in sorted(vector_counts.items())])
+        st.bar_chart(vector_df.set_index("Vector"))
+    else:
+        st.info("No findings to chart — nothing was detected in this scan.")
 
     st.subheader("Executive Summary")
     st.write(ai_result.get("executive_summary", "N/A"))
@@ -834,7 +837,7 @@ if run:
                                 f"{f.get('title','')}**")
                     for s in steps:
                         st.markdown(f"- {s}")
-                    for group, cmds in (f.get("remediation_commands") or {}).items():
+                    for cmds in (f.get("remediation_commands") or {}).values():
                         st.code("\n".join(cmds), language="text")
         else:
             st.info("No findings.")

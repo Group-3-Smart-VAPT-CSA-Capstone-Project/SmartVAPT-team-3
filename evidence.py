@@ -1,10 +1,16 @@
-import os
 import json
-from datetime import datetime
+import os
+from datetime import datetime, timezone
+
+
+def new_scan_id() -> str:
+    """Local-time YYYYMMDD_HHMMSS identifier shared by the scan entry points."""
+    return datetime.now(timezone.utc).astimezone().strftime("%Y%m%d_%H%M%S")
+
 
 class EvidenceStore:
-    def __init__(self, scan_id: str = None, base_dir: str = "evidence"):
-        self.scan_id = scan_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+    def __init__(self, scan_id: str | None = None, base_dir: str = "evidence"):
+        self.scan_id = scan_id or new_scan_id()
         self.base_dir = os.path.join(base_dir, self.scan_id)
         os.makedirs(self.base_dir, exist_ok=True)
 

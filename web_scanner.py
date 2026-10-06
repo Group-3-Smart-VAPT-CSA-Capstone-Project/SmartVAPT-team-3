@@ -1,11 +1,20 @@
-import subprocess, re, ssl, socket, requests, dns.resolver, os
-from command_tracker import run_logged
-import hashlib, secrets
+import hashlib
+import os
+import re
+import secrets
+import socket
+import ssl
+import subprocess
 from datetime import datetime, timezone
-from urllib.parse import urlparse, urljoin
-from typing import Dict, List, Any, Optional
-from findings import Finding
+from typing import Any
+from urllib.parse import urljoin, urlparse
+
+import dns.resolver
+import requests
+
+from command_tracker import run_logged
 from evidence import EvidenceStore
+from findings import Finding
 
 SECURITY_HEADERS = ["Strict-Transport-Security", "Content-Security-Policy",
                     "X-Frame-Options", "X-Content-Type-Options",
@@ -55,7 +64,7 @@ EXPECTED_CONTENT_TYPES = {
     "id_rsa":        ["text/plain", "application/octet-stream"],
     ".aws/credentials": ["text/plain", "application/octet-stream"],
 }
-HTML_MIME_RE = re.compile(r"text/html|application/xhtml", re.I)
+HTML_MIME_RE = re.compile(r"text/html|application/xhtml", re.IGNORECASE)
 
 # 3) Content signature (regex) validation: a genuine sensitive file carries a
 #    recognizable header/body signature. The first bytes of the response are
@@ -70,8 +79,8 @@ SIGNATURE_PATTERNS = {
     ".htpasswd":     [r"(?m)^[A-Za-z0-9._@\-]{2,64}:[^\s:]{13,}"],
     ".aws/credentials": [r"(?m)^\s*\[[A-Za-z0-9_\-]+\]\s*$",
                          r"(?i)(aws_access_key_id|aws_secret_access_key)\s*="],
-    ".sql":          [r"(?i)/\*.*\*/|CREATE\s+(?:TABLE|DATABASE)|INSERT\s+INTO|"
-                      r"DUMP|ALTER\s+TABLE|USE\s+\w"],
+    ".sql":          [(r"(?i)/\*.*\*/|CREATE\s+(?:TABLE|DATABASE)|INSERT\s+INTO|"
+                      r"DUMP|ALTER\s+TABLE|USE\s+\w")],
     ".php.bak":      [r"<\?php|<\?=|echo\s|DB_NAME|define\s*\("],
     ".bak":          [r"<\?php|password|secret|key|host|user|define\s*\("],
     # .zip / .tar.gz are validated via BINARY_SIGNATURES magic bytes only.
@@ -84,7 +93,7 @@ BINARY_SIGNATURES = {
 }
 
 
-def _extension_key(path: str) -> Optional[str]:
+def _extension_key(path: str) -> str | None:
     """Return the most specific known extension key for a sensitive path."""
     pl = path.lower().strip("/")
     if pl in SIGNATURE_PATTERNS or pl in EXPECTED_CONTENT_TYPES:
@@ -102,19 +111,19 @@ def _extension_key(path: str) -> Optional[str]:
     return None
 
 
-def _primary_mime(content_type: Optional[str]) -> str:
+def _primary_mime(content_type: str | None) -> str:
     """'application/zip; charset=binary' -> 'application/zip' (lowercase)."""
     return (content_type or "").split(";")[0].strip().lower()
 
 
-def _html_title(body: str) -> Optional[str]:
-    m = re.search(r"<title[^>]*>(.*?)</title>", body or "", re.I | re.S)
+def _html_title(body: str) -> str | None:
+    m = re.search(r"<title[^>]*>(.*?)</title>", body or "", re.IGNORECASE | re.DOTALL)
     if m:
         return m.group(1).strip()[:200]
     return None
 
 
-def matches_soft404_baseline(meta: Dict[str, Any], baseline: Optional[Dict[str, Any]]) -> bool:
+def matches_soft404_baseline(meta: dict[str, Any], baseline: dict[str, Any] | None) -> bool:
     """True when a 200-response looks exactly like the server's soft-404 page.
 
     Comparison points (any match flags it): identical body size, identical
@@ -127,12 +136,10 @@ def matches_soft404_baseline(meta: Dict[str, Any], baseline: Optional[Dict[str, 
     if baseline.get("body_size") is not None and meta.get("size") == baseline["body_size"]:
         return True
     t1, t2 = baseline.get("title"), meta.get("title")
-    if t1 and t2 and t1 == t2:
-        return True
-    return False
+    return bool(t1 and t2 and t1 == t2)
 
 
-def content_type_ok(path: str, content_type: Optional[str]) -> bool:
+def content_type_ok(path: str, content_type: str | None) -> bool:
     """MIME-type sanity check: reject responses whose Content-Type cannot
     belong to the requested file type (e.g. /backup.zip served as
     text/html is a soft-404/error page, not a real archive)."""
@@ -168,13 +175,13 @@ def has_valid_signature(path: str, head_bytes: bytes) -> bool:
         return False
     return any(re.search(p, text) for p in patterns)
 
-def parse_auth_headers(raw: str) -> Dict[str, str]:
+def parse_auth_headers(raw: str) -> dict[str, str]:
     """Parse a user-supplied block of HTTP headers (one 'Name: value' per
     line) into a dict. Blank lines and '#' comments are ignored.
 
     Typical use is authenticated scanning: Cookie, Authorization, etc.
     """
-    headers: Dict[str, str] = {}
+    headers: dict[str, str] = {}
     for line in (raw or "").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -192,7 +199,7 @@ def parse_auth_headers(raw: str) -> Dict[str, str]:
 
 class WebScanner:
     def __init__(self, target_url: str, evidence: EvidenceStore = None, timeout: int = 10,
-                 auth_headers: Dict[str, str] = None):
+                 auth_headers: dict[str, str] | None = None):
         if not target_url.startswith(("http://", "https://")):
             target_url = "http://" + target_url
         self.target = target_url.rstrip("/")
@@ -222,7 +229,7 @@ class WebScanner:
         self._finding_idx += 1
         return f"WEB-{self._finding_idx:03d}"
 
-    def _mk_finding(self, **kw) -> Dict[str, Any]:
+    def _mk_finding(self, **kw) -> dict[str, Any]:
         """Build a Finding dict with accurate port/service metadata taken
         from the HTTP endpoint this scanner is pointed at (nmap -sV verified)."""
         kw.setdefault("port", self.port)
@@ -242,13 +249,13 @@ class WebScanner:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            with socket.create_connection((host, port), timeout=self.timeout) as s:
-                with ctx.wrap_socket(s, server_hostname=host):
-                    return True
+            with socket.create_connection((host, port), timeout=self.timeout) as s, \
+                    ctx.wrap_socket(s, server_hostname=host):
+                return True
         except Exception:
             return False
 
-    def check_headers(self) -> Dict[str, Any]:
+    def check_headers(self) -> dict[str, Any]:
         result = {"url": self.target, "missing": [], "present": [],
                   "server": None, "findings": [], "error": None}
         try:
@@ -279,14 +286,14 @@ class WebScanner:
                 ))
         return result
 
-    def detect_technologies(self) -> Dict[str, Any]:
+    def detect_technologies(self) -> dict[str, Any]:
         tech = []
         try:
             resp = requests.get(self.target, timeout=self.timeout,
                             headers=self.auth_headers or None)
         except requests.RequestException as e:
             return {"error": str(e), "technologies": []}
-        for h, label in TECH_SIGNATURES.items():
+        for h in TECH_SIGNATURES:
             if h in resp.headers:
                 tech.append({"name": resp.headers[h], "via": f"header:{h}"})
         body = resp.text[:200000]
@@ -302,7 +309,7 @@ class WebScanner:
 
     def gobuster_scan(self, wordlist: str = "/usr/share/wordlists/dirb/common.txt",
                       progress_cb=None, stop_flag=None,
-                      http_services: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+                      http_services: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """Directory brute-force against the URL this scanner targets.
 
         *http_services* (optional) is the list of HTTP endpoints discovered
@@ -357,7 +364,8 @@ class WebScanner:
                 proc.wait(timeout=300)
                 raw = "".join(lines)
             else:
-                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                proc = subprocess.run(cmd, capture_output=True, text=True,
+                                      timeout=300, check=False)
                 raw = proc.stdout
         except FileNotFoundError:
             # gobuster binary missing -> pure-python fallback fuzzer so the
@@ -407,7 +415,7 @@ class WebScanner:
             return ""
         # Bound work: keep parity with gobuster's common.txt (~4600 entries)
         words = words[:4600]
-        found_lines: List[str] = []
+        found_lines: list[str] = []
         lock = threading.Lock()
 
         def probe(word: str):
@@ -440,7 +448,7 @@ class WebScanner:
                         progress_cb(line)
         return "\n".join(found_lines)
 
-    def analyze_tls(self) -> Dict[str, Any]:
+    def analyze_tls(self) -> dict[str, Any]:
         parsed = urlparse(self.target)
         if parsed.scheme != "https":
             return {"enabled": False, "note": "Target not using HTTPS", "findings": []}
@@ -450,32 +458,32 @@ class WebScanner:
                   "issues": [], "findings": []}
         try:
             ctx = ssl.create_default_context()
-            with socket.create_connection((host, port), timeout=self.timeout) as sock:
-                with ctx.wrap_socket(sock, server_hostname=host) as ssock:
-                    cert = ssock.getpeercert()
-                    result["cert"] = {"subject": dict(x[0] for x in cert.get("subject", [])),
-                                      "issuer": dict(x[0] for x in cert.get("issuer", [])),
-                                      "notAfter": cert.get("notAfter"),
-                                      "version": ssock.version(),
-                                      "cipher": ssock.cipher()[0] if ssock.cipher() else None}
-                    if ssock.version() in ("TLSv1", "TLSv1.1"):
-                        result["issues"].append(f"Outdated {ssock.version()}")
-                    # Certificate expiry validation
-                    not_after = cert.get("notAfter")
-                    if not_after:
-                        try:
-                            from email.utils import parsedate_to_datetime
-                            exp = parsedate_to_datetime(not_after)
-                            days_left = (exp - datetime.now(timezone.utc)).days
-                            result["cert"]["days_until_expiry"] = days_left
-                            if days_left < 0:
-                                result["issues"].append(
-                                    f"TLS certificate EXPIRED {-days_left} day(s) ago")
-                            elif days_left <= 30:
-                                result["issues"].append(
-                                    f"TLS certificate expires soon ({days_left} days left)")
-                        except (TypeError, ValueError):
-                            pass
+            with socket.create_connection((host, port), timeout=self.timeout) as sock, \
+                    ctx.wrap_socket(sock, server_hostname=host) as ssock:
+                cert = ssock.getpeercert()
+                result["cert"] = {"subject": dict(x[0] for x in cert.get("subject", [])),
+                                  "issuer": dict(x[0] for x in cert.get("issuer", [])),
+                                  "notAfter": cert.get("notAfter"),
+                                  "version": ssock.version(),
+                                  "cipher": ssock.cipher()[0] if ssock.cipher() else None}
+                if ssock.version() in ("TLSv1", "TLSv1.1"):
+                    result["issues"].append(f"Outdated {ssock.version()}")
+                # Certificate expiry validation
+                not_after = cert.get("notAfter")
+                if not_after:
+                    try:
+                        from email.utils import parsedate_to_datetime
+                        exp = parsedate_to_datetime(not_after)
+                        days_left = (exp - datetime.now(timezone.utc)).days
+                        result["cert"]["days_until_expiry"] = days_left
+                        if days_left < 0:
+                            result["issues"].append(
+                                f"TLS certificate EXPIRED {-days_left} day(s) ago")
+                        elif days_left <= 30:
+                            result["issues"].append(
+                                f"TLS certificate expires soon ({days_left} days left)")
+                    except (TypeError, ValueError):
+                        pass
         except Exception as e:
             result["issues"].append(str(e))
             return result
@@ -491,7 +499,7 @@ class WebScanner:
             ))
         return result
 
-    def fetch_robots_sitemap(self) -> Dict[str, Any]:
+    def fetch_robots_sitemap(self) -> dict[str, Any]:
         result = {"robots": None, "sitemap": None, "disallowed": [], "findings": []}
         try:
             r = requests.get(f"{self.target}/robots.txt", timeout=self.timeout,
@@ -528,7 +536,7 @@ class WebScanner:
             ))
         return result
 
-    def detect_soft404_baseline(self) -> Dict[str, Any]:
+    def detect_soft404_baseline(self) -> dict[str, Any]:
         """Request SOFT404_PROBES random non-existent paths and record how the
         server answers them.
 
@@ -601,13 +609,13 @@ class WebScanner:
         return baseline
 
     @property
-    def soft404_baseline(self) -> Optional[Dict[str, Any]]:
+    def soft404_baseline(self) -> dict[str, Any] | None:
         cached = getattr(self, "_soft404_baseline", None)
         if cached is None:
             cached = self.detect_soft404_baseline()
         return cached
 
-    def probe_sensitive_paths(self) -> Dict[str, Any]:
+    def probe_sensitive_paths(self) -> dict[str, Any]:
         """Probe known sensitive paths with three layers of false-positive
         reduction:
           1. Soft-404 baseline (size / body hash / HTML title) comparison.
@@ -676,7 +684,7 @@ class WebScanner:
             ))
         return result
 
-    def analyze_redirects(self) -> Dict[str, Any]:
+    def analyze_redirects(self) -> dict[str, Any]:
         """Verify the HTTP -> HTTPS upgrade with an explicit (non-followed)
         request so the finding reflects what the server actually returns.
 
@@ -762,7 +770,7 @@ class DNSScanner:
         self.domain = domain.lower().strip()
         self.evidence = evidence
 
-    def check_email_security(self) -> Dict[str, Any]:
+    def check_email_security(self) -> dict[str, Any]:
         spf = self._check_spf()
         dmarc = self._check_dmarc()
         findings = []
@@ -800,7 +808,7 @@ class DNSScanner:
             self.evidence.save_json("dns_records", result)
         return result
 
-    def _check_spf(self) -> Dict[str, Any]:
+    def _check_spf(self) -> dict[str, Any]:
         try:
             answers = dns.resolver.resolve(self.domain, "TXT")
             for r in answers:
@@ -811,7 +819,7 @@ class DNSScanner:
         except Exception as e:
             return {"present": False, "record": None, "error": str(e)}
 
-    def _check_dmarc(self) -> Dict[str, Any]:
+    def _check_dmarc(self) -> dict[str, Any]:
         try:
             answers = dns.resolver.resolve(f"_dmarc.{self.domain}", "TXT")
             for r in answers:

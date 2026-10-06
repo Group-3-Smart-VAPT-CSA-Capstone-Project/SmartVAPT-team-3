@@ -139,9 +139,9 @@ def probe_http_ports(host: str, ports=COMMON_HTTP_PORTS,
             ctx = _ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = _ssl.CERT_NONE
-            with socket.create_connection((host, port), timeout=timeout) as s:
-                with ctx.wrap_socket(s, server_hostname=host):
-                    scheme = "https"
+            with socket.create_connection((host, port), timeout=timeout) as s, \
+                    ctx.wrap_socket(s, server_hostname=host):
+                scheme = "https"
         except Exception:
             scheme = "http"
         # Confirm it actually speaks HTTP with a minimal HEAD request.

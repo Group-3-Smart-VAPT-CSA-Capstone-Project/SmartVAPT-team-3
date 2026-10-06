@@ -1,8 +1,9 @@
-from fpdf import FPDF
-from datetime import datetime
-from config import REPORT_TITLE, REPORT_AUTHOR
 import os
+from datetime import datetime, timezone
 
+from fpdf import FPDF
+
+from config import REPORT_AUTHOR, REPORT_TITLE
 from portsets import describe_ports
 
 DEJAVU_DIR = "/usr/share/fonts/truetype/dejavu"
@@ -88,7 +89,7 @@ class PDFReport(FPDF):
         self.set_text_color(120, 120, 120)
         self.set_x(self.l_margin)
         self.cell(0, 10,
-                  f"Page {self.page_no()} | Generated {datetime.now():%Y-%m-%d %H:%M}",
+                  f"Page {self.page_no()} | Generated {datetime.now(timezone.utc).astimezone():%Y-%m-%d %H:%M}",
                   align="C")
 
 
@@ -127,7 +128,7 @@ def generate_report(scan_data: dict, ai_result: dict,
     pdf.set_x(pdf.l_margin)
     pdf.cell(0, 8, f"Target: {scan_data.get('target', 'N/A')}", ln=True, align="C")
     pdf.set_x(pdf.l_margin)
-    pdf.cell(0, 8, f"Date: {datetime.now():%B %d, %Y}", ln=True, align="C")
+    pdf.cell(0, 8, f"Date: {datetime.now(timezone.utc).astimezone():%B %d, %Y}", ln=True, align="C")
     pdf.ln(8)
 
     # ---------- 1. Executive Summary ----------
@@ -251,7 +252,7 @@ def _render_pentest_details(pdf, scan_data: dict):
     sub("3.1 Test Details & Methodology")
     body(f"Target: {scan_data.get('target', 'N/A')}   "
          f"Scan ID: {scan_data.get('scan_id', 'N/A')}   "
-         f"Date: {datetime.now():%Y-%m-%d %H:%M}")
+         f"Date: {datetime.now(timezone.utc).astimezone():%Y-%m-%d %H:%M}")
     ports_requested = (scan_data.get("ports_requested")
                        or net.get("ports_requested") or "top1000")
     body(f"Ports scanned: {describe_ports(ports_requested)} "

@@ -1,15 +1,17 @@
-import nmap
 import os
 import re
 import subprocess
 import tempfile
 import time
-from typing import List, Dict, Any, Callable, Optional
-from findings import Finding
-from evidence import EvidenceStore
-from portsets import normalize_ports, port_arg_tokens
-from command_tracker import run_logged
+from collections.abc import Callable
+from typing import Any
 
+import nmap
+
+from command_tracker import run_logged
+from evidence import EvidenceStore
+from findings import Finding
+from portsets import normalize_ports, port_arg_tokens
 
 # Service names / products that indicate an HTTP-speaking port (nmap -sV).
 HTTP_SERVICE_TOKENS = ("http", "https", "http-proxy", "https-proxy", "ssl/http",
@@ -17,7 +19,7 @@ HTTP_SERVICE_TOKENS = ("http", "https", "http-proxy", "https-proxy", "ssl/http",
                        "h2", "glighty", "nginx", "apache", "iis", "websocket")
 
 
-def is_http_port(port_info: Dict[str, Any]) -> bool:
+def is_http_port(port_info: dict[str, Any]) -> bool:
     """True when an nmap service dict looks like HTTP(S)."""
     name = str(port_info.get("name") or "").lower()
     product = str(port_info.get("product") or "").lower()
@@ -30,7 +32,7 @@ def is_http_port(port_info: Dict[str, Any]) -> bool:
     return False
 
 
-def find_http_services(net_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+def find_http_services(net_result: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract HTTP/HTTPS services from a parsed NetworkScanner result.
 
     Relies on version detection (-sV) having populated the service name.
@@ -70,14 +72,14 @@ class _ReportOnlyScanner:
     XML report (used by the real-time streaming path, where python-nmap's
     own scan() was never invoked)."""
 
-    def __init__(self, report: Dict[str, Any], xml_raw: str = ""):
+    def __init__(self, report: dict[str, Any], xml_raw: str = ""):
         scan = report.get("scan")
         self._report = scan if isinstance(scan, dict) else {}
         # Prefer the raw XML we captured ourselves; python-nmap's parsed
         # report may or may not embed it depending on version.
         self._xmloutput = xml_raw or (report.get("xmloutput", "") or "")
 
-    def all_hosts(self) -> List[str]:
+    def all_hosts(self) -> list[str]:
         return list(self._report.keys())
 
     def hostname(self, host):  # pragma: no cover - convenience parity
@@ -89,7 +91,7 @@ class _ReportOnlyScanner:
     def get_nmap_last_output(self) -> str:
         return self._xmloutput
 
-    def __getitem__(self, host: str) -> Dict[str, Any]:
+    def __getitem__(self, host: str) -> dict[str, Any]:
         return self._report[host]
 
 
@@ -108,9 +110,9 @@ class NetworkScanner:
         return self._nm
 
     def scan(self, ports: str = "top1000", os_detect: bool = True,
-             arguments: str = None,
-             progress_cb: Optional[Callable[[str], None]] = None,
-             stop_flag: Optional[Dict[str, bool]] = None) -> Dict[str, Any]:
+             arguments: str | None = None,
+             progress_cb: Callable[[str], None] | None = None,
+             stop_flag: dict[str, bool] | None = None) -> dict[str, Any]:
         """Run an nmap scan.
 
         *ports* accepts a Nmap top-ports preset ("top100", "top1000",
@@ -174,7 +176,7 @@ class NetworkScanner:
 
     def _scan_streaming(self, ports: str, arguments: str,
                         progress_cb: Callable[[str], None],
-                        stop_flag: Optional[Dict[str, bool]] = None) -> Optional[str]:
+                        stop_flag: dict[str, bool] | None = None) -> str | None:
         """Run nmap via subprocess, streaming status lines to progress_cb.
 
         Returns the path of a temporary XML file with the scan results, or
@@ -217,7 +219,7 @@ class NetworkScanner:
             return None
         return xml_path
 
-    def _parse(self) -> Dict[str, Any]:
+    def _parse(self) -> dict[str, Any]:
         results = {"target": self.target, "hosts": [], "os_matches": [], "findings": [],
                    "summary": {"open_ports": 0, "total_cves": 0, "critical": 0,
                                "high": 0, "medium": 0, "low": 0, "info": 0}}
@@ -232,7 +234,7 @@ class NetworkScanner:
             host_data = {"ip": host, "hostname": self.nm[host].hostname(),
                          "state": self.nm[host].state(), "os_matches": os_matches, "ports": []}
             for proto in self.nm[host].all_protocols():
-                for port in self.nm[host][proto].keys():
+                for port in self.nm[host][proto]:
                     info = self.nm[host][proto][port]
                     if info.get("state") != "open":
                         continue
@@ -304,11 +306,9 @@ class NetworkScanner:
         b = banner.lower()
         if "ubuntu" in b and re.search(r"ubuntu\s*\d", b):
             return True
-        if "debian" in b or "-deb" in b:
-            return True
-        return False
+        return bool("debian" in b or "-deb" in b)
 
-    def _extract_cves(self, port_info: Dict) -> List[Dict]:
+    def _extract_cves(self, port_info: dict) -> list[dict]:
         cves = []
         for script_name, output in port_info.get("script", {}).items():
             if "vulners" not in script_name.lower():

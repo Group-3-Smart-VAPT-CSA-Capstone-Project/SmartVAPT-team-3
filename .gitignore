@@ -1,23 +1,7 @@
 # Compiled and build artifacts
-*.pyc
 __pycache__/
+*.pyc
 
-# Environment and secrets
-.env
-.env.local
-.env.*
-
-# Editor/IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Logs and temp files
-*.log
-*.tmp
-
-# Generated reports and evidence (specific to this project's output)
-SmartVAPT_*.pdf
-results_*.json
-evidence/
+# Dependencies
+venv/
+.venv/

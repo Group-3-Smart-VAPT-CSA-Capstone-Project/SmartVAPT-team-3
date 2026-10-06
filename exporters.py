@@ -5,7 +5,7 @@ import json
 import os
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
 SARIF_LEVEL = {"critical": "error", "high": "error", "medium": "warning",
@@ -17,7 +17,7 @@ TOOL_VERSION = "1.1.0"
 # ----------------------------------------------------------------------
 # JSON export
 # ----------------------------------------------------------------------
-def export_json(results: Dict[str, Any], ai_result: Dict[str, Any],
+def export_json(results: dict[str, Any], ai_result: dict[str, Any],
                 path: str) -> str:
     payload = {
         "tool": "SmartVAPT",
@@ -35,7 +35,7 @@ def export_json(results: Dict[str, Any], ai_result: Dict[str, Any],
     return path
 
 
-def ai_result_summary(ai_result: Dict[str, Any]) -> Dict[str, Any]:
+def ai_result_summary(ai_result: dict[str, Any]) -> dict[str, Any]:
     return {
         "overall_risk": ai_result.get("overall_risk"),
         "risk_score": ai_result.get("risk_score"),
@@ -46,7 +46,7 @@ def ai_result_summary(ai_result: Dict[str, Any]) -> Dict[str, Any]:
 # ----------------------------------------------------------------------
 # SARIF 2.1.0 export (for GitHub Code Scanning / CI ingestion)
 # ----------------------------------------------------------------------
-def _rule_id(finding: Dict[str, Any]) -> str:
+def _rule_id(finding: dict[str, Any]) -> str:
     if finding.get("cve"):
         return finding["cve"]
     m = re.search(r"Nuclei:.*\(([\w./-]+)\)", finding.get("title", ""))
@@ -57,9 +57,9 @@ def _rule_id(finding: Dict[str, Any]) -> str:
     return f"smartvapt/{prefix}/{finding.get('id', 'X')}"
 
 
-def export_sarif(results: Dict[str, Any], path: str) -> str:
+def export_sarif(results: dict[str, Any], path: str) -> str:
     findings = results.get("findings", [])
-    rules: Dict[str, Dict[str, Any]] = {}
+    rules: dict[str, dict[str, Any]] = {}
     sarif_results = []
     for f in findings:
         rid = _rule_id(f)
@@ -75,9 +75,9 @@ def export_sarif(results: Dict[str, Any], path: str) -> str:
         })
         if f.get("owasp"):
             rules[rid].setdefault("properties", {})["tags"] = [f["owasp"]]
-        loc: Dict[str, Any] = {"physicalLocation": {
+        loc: dict[str, Any] = {"physicalLocation": {
             "artifactLocation": {"uri": f.get("target", "unknown")}}}
-        entry: Dict[str, Any] = {
+        entry: dict[str, Any] = {
             "ruleId": rid,
             "level": SARIF_LEVEL.get(sev, "note"),
             "message": {"text": f.get("evidence", f.get("title", ""))},
@@ -113,10 +113,10 @@ SEV_COLORS = {"critical": "#c80000", "high": "#e66400", "medium": "#d4a017",
               "low": "#2e8b57", "info": "#5b8db8"}
 
 
-def export_html(results: Dict[str, Any], ai_result: Dict[str, Any],
+def export_html(results: dict[str, Any], ai_result: dict[str, Any],
                 path: str) -> str:
     findings = results.get("findings", [])
-    counts: Dict[str, int] = {s: 0 for s in SEVERITY_RANK}
+    counts: dict[str, int] = {s: 0 for s in SEVERITY_RANK}
     for f in findings:
         counts[str(f.get("severity", "info")).lower()] = \
             counts.get(str(f.get("severity", "info")).lower(), 0) + 1
@@ -173,7 +173,7 @@ def export_html(results: Dict[str, Any], ai_result: Dict[str, Any],
 <h1>SmartVAPT Security Assessment</h1>
 <p><b>Target:</b> {esc(str(results.get('target','')))} &nbsp;|&nbsp;
 <b>Scan ID:</b> {esc(str(results.get('scan_id','')))} &nbsp;|&nbsp;
-<b>Generated:</b> {datetime.now():%Y-%m-%d %H:%M}</p>
+<b>Generated:</b> {datetime.now(timezone.utc).astimezone():%Y-%m-%d %H:%M}</p>
 <div class="card"><h2>Executive Summary</h2>
 <p>{esc(str(ai_result.get('executive_summary','N/A')))}</p>
 <p><b>Overall risk:</b> {esc(str(ai_result.get('overall_risk','Unknown')))}
@@ -193,7 +193,7 @@ authorized to test.</small></p>
 # ----------------------------------------------------------------------
 # Baseline / diff mode (continuous monitoring)
 # ----------------------------------------------------------------------
-def save_baseline(results: Dict[str, Any], path: str = "baseline.json") -> str:
+def save_baseline(results: dict[str, Any], path: str = "baseline.json") -> str:
     payload = {
         "saved_at": datetime.now(timezone.utc).isoformat(),
         "target": results.get("target"),
@@ -205,7 +205,7 @@ def save_baseline(results: Dict[str, Any], path: str = "baseline.json") -> str:
     return path
 
 
-def load_baseline(path: str) -> Optional[Dict[str, Any]]:
+def load_baseline(path: str) -> dict[str, Any] | None:
     if not os.path.exists(path):
         return None
     try:
@@ -215,14 +215,14 @@ def load_baseline(path: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _key(f: Dict[str, Any]) -> str:
+def _key(f: dict[str, Any]) -> str:
     """Stable identity for a finding across scans (ignores per-scan IDs)."""
     return "|".join(str(f.get(k, "") or "") for k in
                     ("vector", "title", "target", "port", "cve")).lower()
 
 
-def diff_findings(baseline: Dict[str, Any],
-                  current: List[Dict[str, Any]]) -> Dict[str, List[Dict]]:
+def diff_findings(baseline: dict[str, Any],
+                  current: list[dict[str, Any]]) -> dict[str, list[dict]]:
     base_map = {_key(f): f for f in baseline.get("findings", [])}
     cur_map = {_key(f): f for f in current}
     new = [cur_map[k] for k in cur_map if k not in base_map]
@@ -237,7 +237,7 @@ def diff_findings(baseline: Dict[str, Any],
             "fixed": fixed, "persisting": persist, "escalated": sev_up}
 
 
-def format_diff_summary(diff: Dict[str, List[Dict]]) -> str:
+def format_diff_summary(diff: dict[str, list[dict]]) -> str:
     return (f"+{len(diff['new'])} new | "
             f"-{len(diff['fixed'])} fixed | "
             f"{len(diff['persisting'])} persisting | "

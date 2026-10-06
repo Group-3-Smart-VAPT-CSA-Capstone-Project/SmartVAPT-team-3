@@ -41,7 +41,7 @@ def fmt_eta(seconds: float | None) -> str:
     """Human-readable duration: '45s', '3m 20s', '1h 05m'."""
     if seconds is None:
         return "unknown"
-    s = max(0, int(round(seconds)))
+    s = max(0, round(seconds))
     if s < 60:
         return f"{s}s"
     m, r = divmod(s, 60)

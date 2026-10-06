@@ -30,9 +30,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # The local verification server uses a throwaway self-signed certificate;
 # disable TLS verification for 127.0.0.1 requests only so the REAL
 # SmartVAPT WebScanner checks can run against it unmodified.
-import urllib3  # noqa: E402
+import urllib3
+
 urllib3.disable_warnings()
-import requests  # noqa: E402
+import requests
+
 _orig_request = requests.Session.request
 
 
@@ -45,7 +47,7 @@ def _local_noverify(self, method, url, **kw):
 
 requests.Session.request = _local_noverify
 
-from web_scanner import WebScanner  # noqa: E402  real SmartVAPT checks
+from web_scanner import WebScanner
 
 FIXES_DIR = os.path.dirname(os.path.abspath(__file__))
 CONF_PATH = os.path.join(FIXES_DIR, "nginx_smartvapt.conf")
@@ -160,11 +162,10 @@ def main():
     # tls_available() probes the host on 443; run a copy of the unhardened
     # HTTPS listener there so the redirect check behaves exactly like the
     # real example.com scan (HTTPS exists, but plain HTTP never redirects).
-    srv_443 = None
     try:
-        srv_443 = serve_https(443, key, crt)
+        serve_https(443, key, crt)
     except OSError:
-        srv_443 = None
+        pass
     http_srv = serve_http(http_port)
     https_srv = serve_https(https_port, key, crt)
 
