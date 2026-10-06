@@ -4,19 +4,18 @@ Usage: python3 run_headless_scan.py <target> [--ports 1-100] [--no-network] ...
 """
 import json
 import sys
-from datetime import datetime
 
-from network_scanner import NetworkScanner
-from web_scanner import WebScanner, DNSScanner
-from nuclei_scanner import NucleiScanner
-from subdomain_scanner import SubdomainScanner
-from api_scanner import APIScanner
-from geo_locator import GeoLocator
-from scoring import enrich_findings
 from ai_engine import AIEngine
-from report_gen import generate_report
-from evidence import EvidenceStore
+from api_scanner import APIScanner
+from evidence import EvidenceStore, new_scan_id
 from findings import Finding, FindingSet
+from geo_locator import GeoLocator
+from network_scanner import NetworkScanner
+from nuclei_scanner import NucleiScanner
+from report_gen import generate_report
+from scoring import enrich_findings
+from subdomain_scanner import SubdomainScanner
+from web_scanner import DNSScanner, WebScanner
 
 
 def add_all(fs: FindingSet, items):
@@ -44,7 +43,7 @@ def main():
         else:
             rest.append(args[i])
             i += 1
-    opts = set(a.lower() for a in rest)
+    opts = {a.lower() for a in rest}
     scan_nuclei = "no-nuclei" not in opts  # nuclei is ON by default
     scan_network = "no-network" not in opts
     scan_web = "no-web" not in opts
@@ -55,7 +54,7 @@ def main():
     def log(line):
         print(line.rstrip())
 
-    scan_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    scan_id = new_scan_id()
     evidence = EvidenceStore(scan_id)
     findings = FindingSet()
     results = {"target": target, "scan_id": scan_id}

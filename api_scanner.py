@@ -7,7 +7,7 @@ test (small burst), and common misconfig probes. No exploitation payloads.
 import json
 import re
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -26,7 +26,7 @@ WEAK_JWT_ALGS = {"none", "hs256"}  # alg=none handled separately; HS256 w/ secre
 
 class APIScanner:
     def __init__(self, target_url: str, evidence: EvidenceStore = None,
-                 timeout: int = 10, auth_headers: Dict[str, str] = None):
+                 timeout: int = 10, auth_headers: dict[str, str] | None = None):
         if not target_url.startswith(("http://", "https://")):
             target_url = "https://" + target_url
         self.target = target_url.rstrip("/")
@@ -36,7 +36,7 @@ class APIScanner:
         self.auth_headers = dict(auth_headers or {})
         self._idx = 0
 
-    def _hdrs(self, extra: Dict[str, str] = None) -> Dict[str, str]:
+    def _hdrs(self, extra: dict[str, str] | None = None) -> dict[str, str]:
         h = dict(self.auth_headers)
         if extra:
             h.update(extra)
@@ -46,9 +46,9 @@ class APIScanner:
         self._idx += 1
         return f"API-{self._idx:03d}"
 
-    def run_all(self, progress_cb: Optional[Any] = None,
-                stop_flag: Optional[dict] = None) -> Dict[str, Any]:
-        result: Dict[str, Any] = {"target": self.target, "endpoints": [],
+    def run_all(self, progress_cb: Any | None = None,
+                stop_flag: dict | None = None) -> dict[str, Any]:
+        result: dict[str, Any] = {"target": self.target, "endpoints": [],
                                   "findings": [], "errors": []}
         steps = [
             ("Discover API endpoints", self.discover_endpoints),
@@ -73,7 +73,7 @@ class APIScanner:
         return result
 
     # ------------------------------------------------------------------
-    def discover_endpoints(self, result: Dict):
+    def discover_endpoints(self, result: dict):
         for hint in API_HINTS:
             url = urljoin(self.origin, hint)
             try:
@@ -114,17 +114,17 @@ class APIScanner:
             return "docs-ui"
         return "other"
 
-    def check_methods(self, result: Dict):
+    def check_methods(self, result: dict):
         try:
             r = requests.options(self.origin, timeout=self.timeout,
                             headers=self._hdrs())
         except requests.RequestException as e:
             result["errors"].append(f"OPTIONS: {e}")
             return
-        allow = set(v.strip().upper() for v in
+        allow = {v.strip().upper() for v in
                     (r.headers.get("Allow", "") + "," +
                      r.headers.get("Access-Control-Allow-Methods", "")).split(",")
-                    if v.strip())
+                    if v.strip()}
         dangerous = {"PUT", "DELETE", "PATCH", "TRACE", "CONNECT"} & allow
         entry = {"path": "/", "status": r.status_code,
                  "methods": sorted(allow)}
@@ -154,7 +154,7 @@ class APIScanner:
                 remediation="Ensure BOLA/BFLA controls on PUT/PATCH/DELETE.",
             ).to_dict())
 
-    def check_graphql(self, result: Dict):
+    def check_graphql(self, result: dict):
         for path in ("/graphql", "/api/graphql", "/query"):
             url = urljoin(self.origin, path)
             try:
@@ -163,8 +163,10 @@ class APIScanner:
                                   headers=self._hdrs({"Content-Type": "application/json"}))
             except requests.RequestException:
                 continue
-            if r.status_code == 200 and "__schema" in (r.text[:500] + str(r.request.body)):
-                if "types" in r.text and "__typename" in r.text or '"types"' in r.text:
+            if (r.status_code == 200
+                    and "__schema" in (r.text[:500] + str(r.request.body))
+                    and ("types" in r.text and "__typename" in r.text
+                         or '"types"' in r.text)):
                     result["findings"].append(Finding(
                         id=self._next_id(), vector="web",
                         title=f"GraphQL introspection enabled at {path}",
@@ -179,7 +181,7 @@ class APIScanner:
                     ).to_dict())
                     return
 
-    def check_jwt(self, result: Dict):
+    def check_jwt(self, result: dict):
         for hint in ("/api/login", "/api/auth", "/login", "/api/token", "/oauth/token"):
             url = urljoin(self.origin, hint)
             try:
@@ -218,7 +220,7 @@ class APIScanner:
                 ).to_dict())
 
     @staticmethod
-    def _decode_jwt(token: str) -> Optional[Dict]:
+    def _decode_jwt(token: str) -> dict | None:
         import base64
 
         def b64(part: str) -> bytes:
@@ -233,7 +235,7 @@ class APIScanner:
         except Exception:
             return None
 
-    def check_rate_limit(self, result: Dict):
+    def check_rate_limit(self, result: dict):
         """Small burst (<=10 req/s) smoke test — deliberately gentle."""
         url = self.origin
         sent = ok = 0

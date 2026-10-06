@@ -8,11 +8,12 @@ import os
 import re
 import shutil
 import subprocess
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
-from findings import Finding
-from evidence import EvidenceStore
 from command_tracker import run_logged
+from evidence import EvidenceStore
+from findings import Finding
 
 SEVERITY_MAP = {
     "critical": "critical", "high": "high", "medium": "medium",
@@ -23,8 +24,8 @@ SEVERITY_MAP = {
 
 class NucleiScanner:
     def __init__(self, target_url: str, evidence: EvidenceStore = None,
-                 templates_dir: str = None, timeout: int = 300,
-                 rate_limit: int = 100, auth_headers: dict = None):
+                 templates_dir: str | None = None, timeout: int = 300,
+                 rate_limit: int = 100, auth_headers: dict | None = None):
         self.target = target_url.rstrip("/")
         self.evidence = evidence
         self.templates_dir = templates_dir
@@ -36,9 +37,9 @@ class NucleiScanner:
     def available() -> bool:
         return shutil.which("nuclei") is not None
 
-    def scan(self, progress_cb: Optional[Callable[[str], None]] = None,
-             stop_flag: Optional[dict] = None) -> Dict[str, Any]:
-        result: Dict[str, Any] = {"target": self.target, "available": False,
+    def scan(self, progress_cb: Callable[[str], None] | None = None,
+             stop_flag: dict | None = None) -> dict[str, Any]:
+        result: dict[str, Any] = {"target": self.target, "available": False,
                                   "matched": [], "findings": [], "error": None}
         if not self.available():
             result["error"] = ("nuclei binary not found. Install it: "
@@ -55,7 +56,7 @@ class NucleiScanner:
         for k, v in self.auth_headers.items():
             cmd += ["-H", f"{k}: {v}"]
 
-        lines: List[str] = []
+        lines: list[str] = []
         try:
             proc = run_logged(cmd, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT)
@@ -136,7 +137,7 @@ class NucleiScanner:
         return result
 
     @staticmethod
-    def _first_cve(template_id: str, evt: dict) -> Optional[str]:
+    def _first_cve(template_id: str, evt: dict) -> str | None:
         candidates = [template_id] + list((evt.get("info", {}).get("classification", {}) or {})
                                           .get("cve-id", []) or [])
         for c in candidates:
@@ -146,7 +147,7 @@ class NucleiScanner:
         return None
 
     @staticmethod
-    def _map_owasp(tags_csv: str) -> Optional[str]:
+    def _map_owasp(tags_csv: str) -> str | None:
         t = tags_csv.lower()
         if "xss" in t:
             return "A03:2021 - Cross-Site Scripting"

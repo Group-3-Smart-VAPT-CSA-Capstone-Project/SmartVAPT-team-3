@@ -1,6 +1,8 @@
 
 import json
+
 from google import genai
+
 from config import GEMINI_API_KEY, GEMINI_MODEL
 
 # Note: google-genai SDK uses different safety setting format
@@ -36,7 +38,7 @@ Return ONLY valid JSON in this schema:
 
 
 class AIEngine:
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or GEMINI_API_KEY
         if not self.api_key or self.api_key == "YOUR_GEMINI_API_KEY_HERE":
             raise ValueError("GEMINI_API_KEY not configured. Set env var or edit config.py")
@@ -57,8 +59,7 @@ class AIEngine:
             text = response.text.strip()
             if text.startswith("```"):
                 text = text.split("```")[1]
-                if text.startswith("json"):
-                    text = text[4:]
+                text = text.removeprefix("json")
             return json.loads(text)
         except json.JSONDecodeError:
             return {

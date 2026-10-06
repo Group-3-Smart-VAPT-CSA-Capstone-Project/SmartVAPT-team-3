@@ -42,14 +42,13 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
-from typing import Dict, List, Optional, Tuple
 
 import requests
 
 try:  # surface table lives in scoring.py; fall back to a local copy offline
     from scoring import cve_context
 except Exception:  # pragma: no cover - import-time safety only
-    def cve_context(cve_id: str) -> Tuple[Optional[str], Optional[str]]:
+    def cve_context(cve_id: str) -> tuple[str | None, str | None]:
         return None, None
 
 DEFAULT_TIMEOUT = 15
@@ -73,9 +72,9 @@ _OPENSSH_UBUNTU_RE = re.compile(
     # the release tail may carry dots/spaces ('Ubuntu 14.04.6 LTS').
     r"[\s_-]+Ubuntu[\s_-]+(?P<tail>[^,;()]*?)"
     r"(?=\s*(?:Ubuntu Linux|Linux|\(|~\d{2}\.\d{2}|\s*[,;]|$))",
-    re.I)
+    re.IGNORECASE)
 _UBUNTU_TAIL_REV_RE = re.compile(
-    r"(?P<rev>\d+)ubuntu\.?(?P<revb>\d+(?:\.\d+)?)", re.I)
+    r"(?P<rev>\d+)ubuntu\.?(?P<revb>\d+(?:\.\d+)?)", re.IGNORECASE)
 _UBUNTU_TAIL_REL_RE = re.compile(r"(?P<rel>\d{2}\.\d{2}(?:\.\d+)?)")
 _HMU_RE = re.compile(r"[~ ](\d{2}\.\d{2})(?:\.\d+)?$")  # '...~22.04.1' HMU suffix
 
@@ -112,7 +111,7 @@ _BASE_RELEASES = [
 ]
 
 
-def parse_openssh_banner(banner: str) -> Optional[Dict[str, object]]:
+def parse_openssh_banner(banner: str) -> dict[str, object] | None:
     """Extract the Ubuntu source-package version an OpenSSH banner implies.
 
     'OpenSSH 8.9p1 Ubuntu 3ubuntu0.17'  (reported by nmap as product/version)
@@ -172,7 +171,7 @@ def _upstream_major(up: str) -> float:
         return 0.0
 
 
-def _ubuntu_release_from_suffix(hmu: Optional[str], base: str,
+def _ubuntu_release_from_suffix(hmu: str | None, base: str,
                                 up_major: float = 0.0) -> str:
     """Resolve the MM.YY userspace release an OpenSSH package belongs to.
 
@@ -290,7 +289,7 @@ def _resolve_location(final_url: str, location: str) -> str:
 
 
 def check_http_to_https(host: str, timeout: int = DEFAULT_TIMEOUT,
-                        session: Optional[requests.Session] = None) -> Dict:
+                        session: requests.Session | None = None) -> dict:
     """Probe whether plain HTTP actually upgrades to HTTPS.
 
     Returns a dict:
@@ -311,7 +310,7 @@ def check_http_to_https(host: str, timeout: int = DEFAULT_TIMEOUT,
     url = host if re.match(r"^https?://", host) else f"http://{host}"
     if url.startswith("https://"):  # normalise to the plain-HTTP probe
         url = "http://" + url[len("https://"):]
-    out: Dict = {"redirects_ok": True, "vulnerable": False, "status": None,
+    out: dict = {"redirects_ok": True, "vulnerable": False, "status": None,
                  "location": "", "final_url": "", "detail": "",
                  "attack_paths": []}
     try:
@@ -359,24 +358,24 @@ def check_http_to_https(host: str, timeout: int = DEFAULT_TIMEOUT,
     return out
 
 
-def attack_paths_for(result: Dict) -> List[str]:
+def attack_paths_for(result: dict) -> list[str]:
     """Generate attack paths from the ACTUAL redirect check result."""
     if not result.get("vulnerable"):
-        return ["Verification only: confirm the 3xx-to-https:// behaviour "
-                "with `curl -sI http://<target>` inside the signed scope."]
+        return [("Verification only: confirm the 3xx-to-https:// behaviour "
+                "with `curl -sI http://<target>` inside the signed scope.")]
     detail = result.get("detail", "")
     if result.get("status") == 200:
         return [
-            "Cleartext interception: content served over plain HTTP can be "
-            "read/modified by anyone on the network path (MITM).",
-            "SSL-strip: users typed or linked to https:// can be downgraded "
-            "to the http:// origin because no upgrade exists.",
-            "Session cookies set without Secure transport may leak over the "
-            "cleartext channel.",
+            ("Cleartext interception: content served over plain HTTP can be "
+            "read/modified by anyone on the network path (MITM)."),
+            ("SSL-strip: users typed or linked to https:// can be downgraded "
+            "to the http:// origin because no upgrade exists."),
+            ("Session cookies set without Secure transport may leak over the "
+            "cleartext channel."),
         ]
     return [f"Upgrade bypass: {detail}"] if detail else \
-        ["HTTP->HTTPS upgrade does not reach https://; traffic may stay "
-         "on the cleartext channel."]
+        [("HTTP->HTTPS upgrade does not reach https://; traffic may stay "
+         "on the cleartext channel.")]
 
 
 # ----------------------------------------------------------------------
@@ -388,14 +387,14 @@ _LP_API = ("https://api.launchpad.net/1.0/opensource/"
            "?ws.op=getPublishedVersions&exact_match=true&text={pkg}")
 
 # per-release cached {cve: fixed_binary_version_or_None}
-_ubuntu_status_cache: Dict[str, Dict[str, Optional[str]]] = {}
+_ubuntu_status_cache: dict[str, dict[str, str | None]] = {}
 
 # sentinel returned by get_ubuntu_cve_status() when Ubuntu explicitly says
 # the release is not affected / package did not exist in it.
 NOT_AFFECTED = "__not-affected__"
 
 
-def normalize_package_version(info: Dict[str, object]) -> Optional[str]:
+def normalize_package_version(info: dict[str, object]) -> str | None:
     """Return the Debian source-package version an Ubuntu OpenSSH banner
     implies (e.g. '1:8.9p1-3ubuntu0.17'), or None when the banner does not
     carry enough information to compare reliably.
@@ -409,7 +408,7 @@ def normalize_package_version(info: Dict[str, object]) -> Optional[str]:
     return pkg or None
 
 
-def ubuntu_release_for_banner(banner: str) -> Optional[str]:
+def ubuntu_release_for_banner(banner: str) -> str | None:
     """Return the 'jammy'-style series an OpenSSH banner implies."""
     info = parse_openssh_banner(banner)
     return info["series"] if info else None
@@ -417,8 +416,8 @@ def ubuntu_release_for_banner(banner: str) -> Optional[str]:
 
 def get_ubuntu_cve_status(cve_id: str, series: str,
                           package: str = "openssh",
-                          session: Optional[requests.Session] = None,
-                          timeout: int = DEFAULT_TIMEOUT) -> Optional[str]:
+                          session: requests.Session | None = None,
+                          timeout: int = DEFAULT_TIMEOUT) -> str | None:
     """Fixed binary package version of ``package`` for ``cve_id`` in
     ``series`` from Ubuntu's security data, or None when the tracker has
     no released fix to compare against (unfixed / not-affected / unknown).
@@ -446,7 +445,7 @@ def get_ubuntu_cve_status(cve_id: str, series: str,
     if key in cache:
         return cache[key]
     s = session or requests.Session()
-    fixed: Optional[str] = None
+    fixed: str | None = None
     try:
         r = s.get(_USEC_API.format(cve=key), timeout=timeout, headers=UA)
         if r.ok:
@@ -492,7 +491,7 @@ def get_ubuntu_cve_status(cve_id: str, series: str,
 
 
 def _launchpad_latest(session: requests.Session, src_pkg: str,
-                      timeout: int = DEFAULT_TIMEOUT) -> Optional[str]:
+                      timeout: int = DEFAULT_TIMEOUT) -> str | None:
     try:
         r = session.get(_LP_API.format(pkg=src_pkg), timeout=timeout,
                         headers=UA)
@@ -505,14 +504,15 @@ def _launchpad_latest(session: requests.Session, src_pkg: str,
     return None
 
 
-def dpkg_compare(a: str, op: str, b: str) -> Optional[bool]:
+def dpkg_compare(a: str, op: str, b: str) -> bool | None:
     """dpkg --compare-versions wrapper; None when dpkg is unavailable."""
     dpkg = shutil.which("dpkg")
     if not dpkg:
         return None
     try:
         res = subprocess.run([dpkg, "--compare-versions", a, op, b],
-                             capture_output=True, text=True, timeout=10)
+                             capture_output=True, text=True, timeout=10,
+                             check=False)
         if res.returncode not in (0, 1):
             return None
         return res.returncode == 0
@@ -521,8 +521,8 @@ def dpkg_compare(a: str, op: str, b: str) -> Optional[bool]:
 
 
 def validate_ssh_cve(cve_id: str, banner: str,
-                     session: Optional[requests.Session] = None,
-                     timeout: int = DEFAULT_TIMEOUT) -> Dict:
+                     session: requests.Session | None = None,
+                     timeout: int = DEFAULT_TIMEOUT) -> dict:
     """Cross-check one banner-derived CVE against Ubuntu's security data.
 
     Returns {'cve', 'status': patched|vulnerable|unconfirmed,
@@ -575,19 +575,19 @@ def validate_ssh_cve(cve_id: str, banner: str,
     return out
 
 
-def group_cves_by_release(findings: List[dict], banner: str) -> Dict[str, List[dict]]:
+def group_cves_by_release(findings: list[dict], banner: str) -> dict[str, list[dict]]:
     """Group CVE findings under the release their banner implies, so the
     report states which Ubuntu series the validation ran against."""
     release = ubuntu_release_for_banner(banner) or "unknown"
-    grouped: Dict[str, List[dict]] = {}
+    grouped: dict[str, list[dict]] = {}
     for f in findings:
         if f.get("cve"):
             grouped.setdefault(release, []).append(f)
     return grouped
 
 
-def apply_validations(findings: List[dict], banner: str,
-                      session: Optional[requests.Session] = None) -> Dict:
+def apply_validations(findings: list[dict], banner: str,
+                      session: requests.Session | None = None) -> dict:
     """Run validate_ssh_cve() over every CVE finding from one SSH banner.
 
     Marks each finding with 'ubuntu_validation'; patched CVEs get
@@ -596,7 +596,7 @@ def apply_validations(findings: List[dict], banner: str,
     vulnerability count.  Returns {'vulnerable', 'patched', 'unconfirmed'}
     lists of findings.
     """
-    buckets: Dict[str, List[dict]] = {"vulnerable": [], "patched": [],
+    buckets: dict[str, list[dict]] = {"vulnerable": [], "patched": [],
                                       "unconfirmed": []}
     for f in findings:
         if not f.get("cve"):

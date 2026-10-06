@@ -6,15 +6,16 @@ If the `subfinder` binary is installed it is used as an additional source.
 """
 import re
 import shutil
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 import dns.resolver
 import requests
 
+from command_tracker import run_logged
 from evidence import EvidenceStore
 from findings import Finding
-from command_tracker import run_logged
 
 # Common subdomain prefixes for DNS brute-forcing (kept small & polite)
 DEFAULT_PREFIXES = [
@@ -74,11 +75,11 @@ class SubdomainScanner:
         self._resolver.lifetime = timeout
 
     # ------------------------------------------------------------------
-    def enumerate(self, progress_cb: Optional[Callable[[str], None]] = None,
-                  stop_flag: Optional[dict] = None) -> Dict[str, Any]:
-        result: Dict[str, Any] = {"domain": self.domain, "subdomains": [],
+    def enumerate(self, progress_cb: Callable[[str], None] | None = None,
+                  stop_flag: dict | None = None) -> dict[str, Any]:
+        result: dict[str, Any] = {"domain": self.domain, "subdomains": [],
                                   "sources": {}, "findings": [], "error": None}
-        found: Dict[str, Dict[str, Any]] = {}
+        found: dict[str, dict[str, Any]] = {}
 
         def add(host: str, source: str, ips=None, cname=None):
             host = host.lower().rstrip(".")
@@ -158,8 +159,8 @@ class SubdomainScanner:
         return result
 
     # ------------------------------------------------------------------
-    def _crtsh(self, progress_cb=None) -> List[str]:
-        hosts: List[str] = []
+    def _crtsh(self, progress_cb=None) -> list[str]:
+        hosts: list[str] = []
         try:
             if progress_cb:
                 progress_cb(f"[recon] Querying crt.sh for *.{self.domain}")
@@ -180,7 +181,7 @@ class SubdomainScanner:
                 progress_cb(f"[recon] crt.sh failed: {e}")
         return hosts
 
-    def _subfinder(self, progress_cb=None) -> Optional[List[str]]:
+    def _subfinder(self, progress_cb=None) -> list[str] | None:
         if shutil.which("subfinder") is None:
             return None
         try:
@@ -194,9 +195,9 @@ class SubdomainScanner:
                 progress_cb(f"[recon] subfinder failed: {e}")
             return None
 
-    def _brute_force(self, prefixes: List[str], progress_cb=None,
-                     stop_flag=None) -> Dict[str, Dict]:
-        resolved: Dict[str, Dict] = {}
+    def _brute_force(self, prefixes: list[str], progress_cb=None,
+                     stop_flag=None) -> dict[str, dict]:
+        resolved: dict[str, dict] = {}
         total = len(prefixes)
 
         def check(prefix: str):
@@ -235,10 +236,10 @@ class SubdomainScanner:
         return resolved
 
     # ------------------------------------------------------------------
-    def check_takeovers(self, subdomains: List[Dict], progress_cb=None
-                        ) -> List[Dict[str, str]]:
+    def check_takeovers(self, subdomains: list[dict], progress_cb=None
+                        ) -> list[dict[str, str]]:
         """Detect-only dangling CNAME checks against known service fingerprints."""
-        risks: List[Dict[str, str]] = []
+        risks: list[dict[str, str]] = []
         for entry in subdomains:
             host = entry["host"]
             cname = entry.get("cname")

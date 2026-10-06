@@ -1,5 +1,4 @@
 """CVSS v3.1 base-score calculation and severity-based remediation playbooks."""
-from typing import Optional, Dict, List
 
 # ----------------------------------------------------------------------
 # CVE context tagging (server / client / config-dependent)
@@ -13,21 +12,21 @@ from typing import Optional, Dict, List
 # label it and stop counting it as a directly-exploitable server flaw.
 CVE_CLIENT_IDS = {
     # --- OpenSSH client-side ------------------------------------------------
-    "CVE-2023-38408": ("client", "libssh agent forwarding: exploitable only when "
-                       "ssh-agent forwarding is used against an untrusted server"),
+    "CVE-2023-38408": ("client", ("libssh agent forwarding: exploitable only when "
+                       "ssh-agent forwarding is used against an untrusted server")),
     "CVE-2023-28531": ("client", "libssh smartcard ssh-add PKCS#11 handling"),
-    "CVE-2023-51385": ("client", "OpenSSH/termios terminal escape injection via "
-                       "a malicious SSH server (client side)"),
-    "CVE-2023-48795": ("protocol", "Terrapin prefix-truncation; requires BOTH peer "
+    "CVE-2023-51385": ("client", ("OpenSSH/termios terminal escape injection via "
+                       "a malicious SSH server (client side)")),
+    "CVE-2023-48795": ("protocol", ("Terrapin prefix-truncation; requires BOTH peer "
                        "and local attacker position or downgrade — affects client "
-                       "and server channels"),
+                       "and server channels")),
     "CVE-2025-26465": ("client", "GSS-API/KRB memory leak in ssh client authentication"),
-    "CVE-2020-15778": ("client", "Command injection via tmux control mode, requires "
-                       "authorized_keys command forcing on the CLIENT host"),
+    "CVE-2020-15778": ("client", ("Command injection via tmux control mode, requires "
+                       "authorized_keys command forcing on the CLIENT host")),
     "CVE-2019-6111": ("client", "scp client symlink race during download"),
     "CVE-2019-6110": ("client", "scp client TOCTOU/symlink following"),
-    "CVE-2021-28041": ("config", "AuthorizedKeysCommand fetched over ssh:// without "
-                        "host-key verification (depends on server config)"),
+    "CVE-2021-28041": ("config", ("AuthorizedKeysCommand fetched over ssh:// without "
+                        "host-key verification (depends on server config)")),
     "CVE-2023-51767": ("client", "libssh client handshake state confusion"),
     "CVE-2023-6004": ("client", "libssh client-side KEX fuzzing issue"),
     "CVE-2016-1908": ("client", "SSH client X11 SECURITY extension escaping"),
@@ -35,10 +34,10 @@ CVE_CLIENT_IDS = {
     "CVE-2016-0779": ("client", "libssh agent double-free DoS"),
     "CVE-2015-8325": ("client", "ssh-copy-id rogue-server shell injection (client)"),
     "CVE-2015-5352": ("client", "SSH client tunnel restriction bypass"),
-    "CVE-2016-6210": ("server-config", "sshd regex DoS only when Match User/group "
-                      "directives are configured"),
-    "CVE-2024-6387": ("server", "regreSSHion: signal-handler race in sshd(8), "
-                      "Ubuntu/LTS builds ship distro backport patches"),
+    "CVE-2016-6210": ("server-config", ("sshd regex DoS only when Match User/group "
+                      "directives are configured")),
+    "CVE-2024-6387": ("server", ("regreSSHion: signal-handler race in sshd(8), "
+                      "Ubuntu/LTS builds ship distro backport patches")),
 }
 
 
@@ -47,7 +46,7 @@ def cve_context(cve_id: str):
     return CVE_CLIENT_IDS.get(str(cve_id or "").upper(), (None, None))
 
 
-def tag_cve_findings(findings: List[dict]) -> List[dict]:
+def tag_cve_findings(findings: list[dict]) -> list[dict]:
     """Attach 'cve_surface' ('server'|'client'|'config'|'protocol') and a
     short 'cve_note' to network CVE findings based on the known-ID table.
     Unknown ids default to 'server' (the conservative assumption for a
@@ -75,7 +74,7 @@ _SCOPE_CHANGED_K = 7.62   # 8 * Impact when Scope = Changed
 _SCOPE_UNCHANGED_K = 7.52  # 10.41 * (1 - Impact) when Scope = Unchanged
 
 
-def parse_vector(vector: str) -> Dict[str, str]:
+def parse_vector(vector: str) -> dict[str, str]:
     """Parse 'CVSS:3.1/AV:N/AC:L/...' into a metric dict (lower-cased keys)."""
     parts = {}
     for chunk in vector.split("/"):
@@ -85,7 +84,7 @@ def parse_vector(vector: str) -> Dict[str, str]:
     return parts
 
 
-def cvss_v31_base_score(vector: str) -> Optional[float]:
+def cvss_v31_base_score(vector: str) -> float | None:
     """Compute the CVSS v3.1 base score from a vector string.
 
     Returns None when the vector is malformed or not a v3.x vector.
@@ -151,7 +150,7 @@ def severity_from_cvss(score: float) -> str:
 # ----------------------------------------------------------------------
 # Remediation playbooks (offline, deterministic)
 # ----------------------------------------------------------------------
-_PLAYBOOKS: Dict[str, Dict] = {
+_PLAYBOOKS: dict[str, dict] = {
     "missing_header": {
         "owasp": "A05:2021 - Security Misconfiguration",
         "steps": [
@@ -268,7 +267,7 @@ _KEYWORD_MAP = [
 ]
 
 
-def playbook_for(title: str, description: str = "") -> Dict:
+def playbook_for(title: str, description: str = "") -> dict:
     """Return the remediation playbook matching a finding's title/description."""
     text = f"{title} {description}".lower()
     for keywords, name in _KEYWORD_MAP:
@@ -285,7 +284,7 @@ def playbook_for(title: str, description: str = "") -> Dict:
 # Ethical-use note: these are safe VERIFICATION steps a tester may run
 # inside the signed scope of a penetration test — not weaponised exploits.
 # ----------------------------------------------------------------------
-_EXPLOIT_GUIDES: Dict[str, Dict] = {
+_EXPLOIT_GUIDES: dict[str, dict] = {
     "missing_header": {
         "difficulty": "Informational",
         "attack_paths": ["Clickjacking (missing X-Frame-Options/CSP frame-ancestors)",
@@ -371,7 +370,7 @@ _EXPLOIT_GUIDES: Dict[str, Dict] = {
 
 
 def exploit_guide_for(title: str, description: str = "",
-                      finding: Optional[dict] = None) -> Dict:
+                      finding: dict | None = None) -> dict:
     """Return exploitation/verification guidance keyed off the same playbook
     matcher used for remediation. When the finding carries a CVE tag whose
     attack surface is NOT the listening service (client-side, config- or
@@ -397,7 +396,7 @@ def exploit_guide_for(title: str, description: str = "",
     return guide
 
 
-def enrich_findings(findings: List[dict]) -> List[dict]:
+def enrich_findings(findings: list[dict]) -> list[dict]:
     """Attach cvss_score (if vector available), normalized severity and a
     remediation playbook to each finding dict. Mutates and returns the list."""
     tag_cve_findings(findings)

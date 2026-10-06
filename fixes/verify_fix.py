@@ -17,8 +17,9 @@ import socket
 import ssl
 import sys
 import threading
-import urllib3
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+import urllib3
 
 # This harness intentionally talks to throwaway local servers with self-signed
 # certs; silence the noisy per-request InsecureRequestWarning (the explicit
@@ -26,7 +27,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 sys.path.insert(0, "/workspace")
-from web_scanner import WebScanner, SECURITY_HEADERS
+from web_scanner import SECURITY_HEADERS, WebScanner
 
 CONF = "/workspace/fixes/nginx_smartvapt.conf"
 
@@ -161,7 +162,7 @@ def main():
     ph = free_port()
     ps = free_port()
     httpd_h = serve(HardenedHandler, ph)          # plain HTTP: redirects
-    httpd_s = serve_tls(HttpsHardenedHandler, ps) # stand-in for 443 TLS listener
+    serve_tls(HttpsHardenedHandler, ps) # stand-in for 443 TLS listener
 
     # Point the scanner at the redirect target: rewrite https host:443 to local TLS port
     class LocalTls(WebScanner):
@@ -175,7 +176,7 @@ def main():
                 return False
 
     ws = LocalTls(f"http://127.0.0.1:{ph}/")
-    res_a = ws.check_headers()
+    ws.check_headers()
     # emulate post-fix state: request follows 301 to https endpoint carrying headers
     try:
         import requests

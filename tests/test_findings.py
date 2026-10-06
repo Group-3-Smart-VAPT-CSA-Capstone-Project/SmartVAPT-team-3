@@ -1,5 +1,5 @@
-import pytest
 from findings import Finding, FindingSet
+
 
 class TestFinding:
     def test_severity_rank_ordering(self):

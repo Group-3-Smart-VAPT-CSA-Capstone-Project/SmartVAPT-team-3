@@ -1,5 +1,5 @@
-from dataclasses import dataclass, field, asdict
-from typing import List, Optional, Dict
+import builtins
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 
 SEVERITY_ORDER = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
@@ -12,24 +12,24 @@ class Finding:
     severity: str
     description: str
     evidence: str
-    cve: Optional[str] = None
-    cvss: Optional[float] = None
-    owasp: Optional[str] = None
+    cve: str | None = None
+    cvss: float | None = None
+    owasp: str | None = None
     target: str = ""
-    port: Optional[int] = None
-    service: Optional[str] = None
-    confirmed: Optional[bool] = None
-    confidence: Optional[str] = None
-    cve_surface: Optional[str] = None
-    cve_note: Optional[str] = None
-    severity_downgrade_reason: Optional[str] = None
+    port: int | None = None
+    service: str | None = None
+    confirmed: bool | None = None
+    confidence: str | None = None
+    cve_surface: str | None = None
+    cve_note: str | None = None
+    severity_downgrade_reason: str | None = None
     remediation: str = ""
-    cvss_vector: Optional[str] = None
-    remediation_steps: Optional[list] = None
-    remediation_commands: Optional[dict] = None
+    cvss_vector: str | None = None
+    remediation_steps: list | None = None
+    remediation_commands: dict | None = None
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
     @property
@@ -38,7 +38,7 @@ class Finding:
 
 class FindingSet:
     def __init__(self):
-        self._findings: List[Finding] = []
+        self._findings: list[Finding] = []
         self._ids = set()
 
     def add(self, finding: Finding):
@@ -47,14 +47,14 @@ class FindingSet:
         self._ids.add(finding.id)
         self._findings.append(finding)
 
-    def extend(self, findings: List[Finding]):
+    def extend(self, findings: list[Finding]):
         for f in findings:
             self.add(f)
 
-    def all(self) -> List[Finding]:
+    def all(self) -> list[Finding]:
         return sorted(self._findings, key=lambda f: -f.severity_rank)
 
-    def by_vector(self, vector: str) -> List[Finding]:
+    def by_vector(self, vector: str) -> list[Finding]:
         return [f for f in self.all() if f.vector == vector]
 
     def remove(self, finding_id: str) -> bool:
@@ -65,16 +65,16 @@ class FindingSet:
         self._ids.discard(finding_id)
         return len(self._findings) < before
 
-    def list(self) -> List[Finding]:
+    def list(self) -> list[Finding]:
         return self.all()
 
-    def counts(self) -> Dict[str, int]:
+    def counts(self) -> dict[str, int]:
         c = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
         for f in self._findings:
             c[f.severity.lower()] = c.get(f.severity.lower(), 0) + 1
         return c
 
-    def to_dict_list(self) -> List[Dict]:
+    def to_dict_list(self) -> builtins.list[dict]:
         return [f.to_dict() for f in self.all()]
 
     def __len__(self):

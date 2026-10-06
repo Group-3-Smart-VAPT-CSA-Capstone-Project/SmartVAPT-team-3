@@ -39,7 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # Done before web_scanner is imported so its `dns.resolver.resolve` reference
 # picks up the patched function.
 # ---------------------------------------------------------------------------
-import dns.resolver as _dns_resolver  # noqa: E402
+import dns.resolver as _dns_resolver
 
 FIXED_ZONE = {
     "scanme.nmap.org": ['"v=spf1 -all"'],
@@ -67,9 +67,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Local verification server uses a throwaway self-signed certificate; disable
 # TLS verification for 127.0.0.1 requests only so the REAL SmartVAPT
 # WebScanner checks can run against it unmodified.
-import urllib3  # noqa: E402
+import urllib3
+
 urllib3.disable_warnings()
-import requests  # noqa: E402
+import requests
+
 _orig_request = requests.Session.request
 
 
@@ -82,9 +84,10 @@ def _local_noverify(self, method, url, **kw):
 
 requests.Session.request = _local_noverify
 
-import web_scanner as _web_scanner_mod  # noqa: E402
+import web_scanner as _web_scanner_mod
+
 _web_scanner_mod.dns.resolver.resolve = _fixed_zone_resolve  # simulate fixed zone
-from web_scanner import WebScanner, DNSScanner  # noqa: E402  real SmartVAPT checks
+from web_scanner import DNSScanner, WebScanner
 
 FIXES_DIR = os.path.dirname(os.path.abspath(__file__))
 SEC_CONF = os.path.join(FIXES_DIR, "scanme_apache_security.conf")
@@ -212,16 +215,15 @@ def main():
     missing_before = before_hdr["missing"]
     r = requests.get(f"http://127.0.0.1:{http_p}/", timeout=5)
     redirect_before = r.status_code in (301, 302, 308)
-    print(f"\n[2] BEFORE (baseline reproducing scanme.nmap.org):")
+    print("\n[2] BEFORE (baseline reproducing scanme.nmap.org):")
     print(f"    missing headers ({len(missing_before)}): {missing_before}")
     print(f"    HTTP status: {r.status_code} (redirect to HTTPS: {'yes' if redirect_before else 'no'})")
 
     # Baseline DNS state on the LIVE zone (unpatched resolver reference is
     # bypassed here by querying through the real resolver before patching took
     # effect — reproduced from scan results instead): SPF & DMARC absent.
-    dns_before = {"spf": False, "dmarc": False}
-    print(f"\n[2b] BEFORE DNS (live nmap.org zone, per scan 20261001_044715):")
-    print(f"    SPF present: False (DNS-001 HIGH) | DMARC present: False (DNS-002 HIGH)")
+    print("\n[2b] BEFORE DNS (live nmap.org zone, per scan 20261001_044715):")
+    print("    SPF present: False (DNS-001 HIGH) | DMARC present: False (DNS-002 HIGH)")
 
     s1.shutdown(); s2.shutdown()
 
@@ -239,7 +241,7 @@ def main():
     ws2 = WebScanner(f"https://127.0.0.1:{https_p2}")
     after_hdr = ws2.check_headers()
     r2 = requests.get(f"http://127.0.0.1:{http_p2}/", timeout=5, allow_redirects=False)
-    print(f"\n[3] AFTER (config applied, re-scan with real WebScanner):")
+    print("\n[3] AFTER (config applied, re-scan with real WebScanner):")
     print(f"    http://  -> {r2.status_code} Location: {r2.headers.get('Location')}")
     print(f"    https:// -> missing headers: {after_hdr['missing'] or 'none'}")
     print(f"    https:// -> present: {sorted(h['header'] for h in after_hdr['present'])}")
@@ -249,7 +251,7 @@ def main():
     # ---- AFTER DNS: real DNSScanner against the zone with README section-3
     # records published (SPF "v=spf1 -all", DMARC p=reject) ----
     dns_after = DNSScanner("scanme.nmap.org").check_email_security()
-    print(f"\n[3b] AFTER DNS (records published, real DNSScanner.check_email_security):")
+    print("\n[3b] AFTER DNS (records published, real DNSScanner.check_email_security):")
     print(f"    SPF present: {dns_after['spf']['present']} | record: {dns_after['spf'].get('record')}")
     print(f"    DMARC present: {dns_after['dmarc']['present']} | policy: {dns_after['dmarc'].get('policy')}")
     print(f"    remaining DNS findings: {len(dns_after['findings']) or 'none'}")
