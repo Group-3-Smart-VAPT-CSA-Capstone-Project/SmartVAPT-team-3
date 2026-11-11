@@ -14,7 +14,7 @@ from findings import Finding
 from portsets import normalize_ports, port_arg_tokens
 
 # Service names / products that indicate an HTTP-speaking port (nmap -sV).
-HTTP_SERVICE_TOKENS = ("http", "https", "http-proxy", "https-proxy", "ssl/http",
+HTTP_SERVICE_TOKENS = ("http", "https", "ssl/http",
                        "upnp", "jetty", "tomcat", "jboss", "thrift-http",
                        "h2", "glighty", "nginx", "apache", "iis", "websocket")
 
@@ -24,6 +24,8 @@ def is_http_port(port_info: dict[str, Any]) -> bool:
     name = str(port_info.get("name") or "").lower()
     product = str(port_info.get("product") or "").lower()
     tunnel = str(port_info.get("tunnel") or "").lower()
+    if "proxy" in name or "proxy" in product:
+        return False
     if tunnel == "ssl" and "http" in name:
         return True
     for token in HTTP_SERVICE_TOKENS:
@@ -33,11 +35,7 @@ def is_http_port(port_info: dict[str, Any]) -> bool:
 
 
 def find_http_services(net_result: dict[str, Any]) -> list[dict[str, Any]]:
-    """Extract HTTP/HTTPS services from a parsed NetworkScanner result.
-
-    Relies on version detection (-sV) having populated the service name.
-    Returns [{host, port, protocol, service, product, version, tunnel, url}, ...]
-    """
+    """Extract HTTP/HTTPS services from a parsed NetworkScanner result."""
     out = []
     for host in net_result.get("hosts", []) or []:
         ip = host.get("ip") or host.get("hostname") or ""
@@ -68,24 +66,20 @@ def find_http_services(net_result: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 class _ReportOnlyScanner:
-    """Minimal stand-in for nmap.PortScanner backed by an already-parsed
-    XML report (used by the real-time streaming path, where python-nmap's
-    own scan() was never invoked)."""
+    """Minimal stand-in for nmap.PortScanner backed by an already-parsed XML report."""
 
     def __init__(self, report: dict[str, Any], xml_raw: str = ""):
         scan = report.get("scan")
         self._report = scan if isinstance(scan, dict) else {}
-        # Prefer the raw XML we captured ourselves; python-nmap's parsed
-        # report may or may not embed it depending on version.
         self._xmloutput = xml_raw or (report.get("xmloutput", "") or "")
 
     def all_hosts(self) -> list[str]:
         return list(self._report.keys())
 
-    def hostname(self, host):  # pragma: no cover - convenience parity
+    def hostname(self, host):
         return self[host].hostname()
 
-    def state(self, host):     # pragma: no cover - convenience parity
+    def state(self, host):
         return self[host].state()
 
     def get_nmap_last_output(self) -> str:
@@ -98,8 +92,6 @@ class _ReportOnlyScanner:
 class NetworkScanner:
     def __init__(self, target: str, evidence: EvidenceStore = None):
         self.target = target
-        # Lazy: python-nmap's constructor requires the nmap binary at init;
-        # defer it so streaming/legacy paths can handle a missing binary.
         self._nm = None
         self.evidence = evidence
 
@@ -113,17 +105,6 @@ class NetworkScanner:
              arguments: str | None = None,
              progress_cb: Callable[[str], None] | None = None,
              stop_flag: dict[str, bool] | None = None) -> dict[str, Any]:
-        """Run an nmap scan.
-
-        *ports* accepts a Nmap top-ports preset ("top100", "top1000",
-        "top10000") or an explicit range/list ("80,443,8000-9000").
-        Version detection (-sV) is always enabled so downstream consumers
-        (e.g. gobuster) can discover which ports actually speak HTTP.
-
-        If *progress_cb* is supplied, nmap is executed as a live subprocess
-        and its per-probe status lines are streamed to the callback as they
-        arrive (real-time output). Without a callback, behaviour is unchanged.
-        """
         norm_ports = normalize_ports(ports) or "top1000"
         if arguments is None:
             arguments = "-sV -sC --script vulners"
@@ -131,12 +112,9 @@ class NetworkScanner:
                 arguments += " -O --osscan-guess"
 
         if progress_cb is not None:
-            xml_path = self._scan_streaming(norm_ports, arguments,
-                                            progress_cb, stop_flag)
+            xml_path = self._scan_streaming(norm_ports, arguments, progress_cb, stop_flag)
             if xml_path is None:
-                # streaming path failed before producing results; fall back
-                self.nm.scan(hosts=self.target, ports=norm_ports,
-                             arguments=arguments)
+                self.nm.scan(hosts=self.target, ports=norm_ports, arguments=arguments)
             else:
                 with open(xml_path, "r", errors="replace") as fh:
                     raw = fh.read()
@@ -145,8 +123,7 @@ class NetworkScanner:
                 self._nm = _ReportOnlyScanner(report, raw)
         else:
             try:
-                self.nm.scan(hosts=self.target, ports=norm_ports,
-                             arguments=arguments)
+                self.nm.scan(hosts=self.target, ports=norm_ports, arguments=arguments)
             except nmap.PortScannerError as e:
                 return {"error": str(e), "target": self.target}
 
@@ -157,12 +134,9 @@ class NetworkScanner:
                 pass
         parsed = self._parse()
         parsed["ports_requested"] = norm_ports
-        # Surface where HTTP is actually running (from -sV service detection)
-        # so web fingerprinting / gobuster / nuclei target the right port.
         http_services = find_http_services(parsed)
         parsed["http_services"] = http_services
-        parsed["primary_http_url"] = (http_services[0]["url"]
-                                      if http_services else None)
+        parsed["primary_http_url"] = (http_services[0]["url"] if http_services else None)
         return parsed
 
     def _last_output(self) -> str:
@@ -177,31 +151,21 @@ class NetworkScanner:
     def _scan_streaming(self, ports: str, arguments: str,
                         progress_cb: Callable[[str], None],
                         stop_flag: dict[str, bool] | None = None) -> str | None:
-        """Run nmap via subprocess, streaming status lines to progress_cb.
-
-        Returns the path of a temporary XML file with the scan results, or
-        None on failure (FileNotFoundError / non-zero exit).
-        """
         fd, xml_path = tempfile.mkstemp(suffix=".xml", prefix="smartvapt_")
         os.close(fd)
         cmd = ["nmap"] + arguments.split()
-        # Preset ("top1000") -> "--top-ports 1000"; literal range/list
-        # ("1-1000", "80,443") -> "-p <spec>" exactly as the user requested.
         cmd += port_arg_tokens(ports)
         cmd += ["-oX", xml_path, self.target]
         try:
-            # Announced in the command tracker so the live scan output can
-            # show "nmap running on <target>" while the process is alive.
-            proc = run_logged(cmd, stdout=subprocess.DEVNULL,
-                              stderr=subprocess.PIPE)
+            proc = run_logged(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         except FileNotFoundError:
             os.unlink(xml_path)
             raise
-        deadline = time.time() + 600  # 10-minute cap, same spirit as before
+        deadline = time.time() + 600
         for line in proc.stderr:
             line = line.strip()
             if line:
-                progress_cb(line)  # may raise (user stop) -> handled below
+                progress_cb(line)
             if stop_flag and stop_flag.get("stop"):
                 proc.terminate()
                 try:
@@ -224,6 +188,7 @@ class NetworkScanner:
                    "summary": {"open_ports": 0, "total_cves": 0, "critical": 0,
                                "high": 0, "medium": 0, "low": 0, "info": 0}}
         finding_idx = 0
+        seen_cve_keys: set[tuple[str, str, str]] = set()
         for host in self.nm.all_hosts():
             os_matches = []
             if "osmatch" in self.nm[host]:
@@ -240,26 +205,24 @@ class NetworkScanner:
                         continue
                     results["summary"]["open_ports"] += 1
                     cves = self._extract_cves(info)
-                    banner = " ".join(str(info.get(k) or "") for k in
-                                      ("product", "version", "extrainfo")).strip()
+                    banner = " ".join(str(info.get(k) or "") for k in ("product", "version", "extrainfo")).strip()
                     distro_patched = self._distro_backport_reliable(banner)
                     for cve in cves:
-                        # Ubuntu/Debian ship distro builds that backport
-                        # security fixes without bumping the upstream version
-                        # string, so banner matching over-reports. A high
-                        # revision (e.g. OpenSSH ...ubuntu0.17) means many
-                        # CVEs — regreSSHion CVE-2024-6387 among them — are
-                        # already patched. Label such matches unconfirmed.
-                        unconfirmed = True  # banner match unless CVSS vector present AND not a distro-backport build
+                        service_key = str(info.get("name") or info.get("product") or "").lower()
+                        key = (host, service_key, cve["id"])
+                        if key in seen_cve_keys:
+                            continue
+                        seen_cve_keys.add(key)
+                        unconfirmed = True
                         if cve.get("vector") and not distro_patched:
                             unconfirmed = False
                         note = cve.get("note") or ""
                         if distro_patched:
-                            note = ((note + "; ") if note else "") + \
-                                ("banner is a distro build with backported "
-                                 "security patches — check Ubuntu CVE "
-                                 "tracker (ubuntu.com/security/cves) / USN "
-                                 "data before treating as vulnerable")
+                            note = ((note + "; ") if note else "") + (
+                                "banner is a distro build with backported "
+                                "security patches — check Ubuntu CVE "
+                                "tracker (ubuntu.com/security/cves) / USN "
+                                "data before treating as vulnerable")
                         sev = cve["severity"]
                         results["summary"][sev] += 1
                         results["summary"]["total_cves"] += 1
@@ -299,10 +262,6 @@ class NetworkScanner:
 
     @staticmethod
     def _distro_backport_reliable(banner: str) -> bool:
-        """True when a service banner looks like a Linux-distro build whose
-        packaging revision indicates regular security backports (e.g.
-        'OpenSSH 8.9p1 Ubuntu 3ubuntu0.17'). Such banners make vulners'
-        version-range matching unreliable."""
         b = banner.lower()
         if "ubuntu" in b and re.search(r"ubuntu\s*\d", b):
             return True
@@ -315,9 +274,6 @@ class NetworkScanner:
                 continue
             seen = set()
             for line in output.splitlines():
-                # Vulners output formats vary: "CVE-XXXX-NNNN 9.8" or vector
-                # strings like "CVE-XXXX-NNNN/CVSS:3.1/AV:N/... 8.1". Try the
-                # simple format first, then fall back to a trailing score.
                 m = re.search(r"(CVE-\d{4}-\d{4,7})\s+(?:CVSS:)?(\d+(?:\.\d+)?)\b", line)
                 if not m:
                     m = re.search(r"(CVE-\d{4}-\d{4,7})\S*\s+.*?(\d\.\d)\s*$", line)
@@ -330,7 +286,6 @@ class NetworkScanner:
                         score = float(m.group(2))
                     except ValueError:
                         continue
-                    # Capture the full CVSS v3.x vector string when present
                     vector = None
                     vm = re.search(r"(CVSS:3\.\d/[A-Za-z0-9/:._-]+)", line)
                     if vm:
@@ -358,12 +313,11 @@ class NetworkScanner:
 
     @staticmethod
     def _remediation_for(cve: str) -> str:
-        surface, _ = None, None
         try:
             from scoring import cve_context
             surface = cve_context(cve)[0]
         except Exception:
-            pass
+            surface = None
         if surface and surface != "server":
             return (f"{cve} is a {surface}-side/configuration-dependent issue, "
                     "not a directly exploitable flaw in the listening service. "

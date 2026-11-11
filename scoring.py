@@ -13,20 +13,20 @@
 CVE_CLIENT_IDS = {
     # --- OpenSSH client-side ------------------------------------------------
     "CVE-2023-38408": ("client", ("libssh agent forwarding: exploitable only when "
-                       "ssh-agent forwarding is used against an untrusted server")),
+                        "ssh-agent forwarding is used against an untrusted server")),
     "CVE-2023-28531": ("client", "libssh smartcard ssh-add PKCS#11 handling"),
     "CVE-2023-51385": ("client", ("OpenSSH/termios terminal escape injection via "
-                       "a malicious SSH server (client side)")),
+                        "a malicious SSH server (client side)")),
     "CVE-2023-48795": ("protocol", ("Terrapin prefix-truncation; requires BOTH peer "
-                       "and local attacker position or downgrade — affects client "
-                       "and server channels")),
+                        "and local attacker position or downgrade — affects client "
+                        "and server channels")),
     "CVE-2025-26465": ("client", "GSS-API/KRB memory leak in ssh client authentication"),
     "CVE-2020-15778": ("client", ("Command injection via tmux control mode, requires "
-                       "authorized_keys command forcing on the CLIENT host")),
+                        "authorized_keys command forcing on the CLIENT host")),
     "CVE-2019-6111": ("client", "scp client symlink race during download"),
     "CVE-2019-6110": ("client", "scp client TOCTOU/symlink following"),
     "CVE-2021-28041": ("config", ("AuthorizedKeysCommand fetched over ssh:// without "
-                        "host-key verification (depends on server config)")),
+                         "host-key verification (depends on server config)")),
     "CVE-2023-51767": ("client", "libssh client handshake state confusion"),
     "CVE-2023-6004": ("client", "libssh client-side KEX fuzzing issue"),
     "CVE-2016-1908": ("client", "SSH client X11 SECURITY extension escaping"),
@@ -107,10 +107,6 @@ def cvss_v31_base_score(vector: str) -> float | None:
         return None
 
     iss = 1 - ((1 - c) * (1 - i) * (1 - a))
-    # CVSS v3.1 spec:
-    #   Scope Unchanged: Impact = 6.42 * ISS
-    #   Scope Changed:   ISCBase = min(7.52*(ISS - 0.0293) - 3.25*(ISS*0.9731 - 0.02)^13, 10)
-    #                    Impact = 7.62 * ISCBase
     if m.get("S") == "C":
         isc_base = min(7.52 * (iss - 0.0293) - 3.25 * (iss * 0.9731 - 0.02) ** 13, 10)
         impact = 7.62 * isc_base
@@ -121,8 +117,6 @@ def cvss_v31_base_score(vector: str) -> float | None:
     if impact <= 0:
         return 0.0
     if m.get("S") == "C":
-        # Spec: Scope-Changed Impact is already capped at 10 (via ISCBase),
-        # so any non-zero impact saturates the base score to 10.
         raw = min(impact + 1.08 * exploitability, 10)
     else:
         raw = min(exploitability + impact, 10)
@@ -254,10 +248,6 @@ _PLAYBOOKS: dict[str, dict] = {
 
 _KEYWORD_MAP = [
     (("security header",), "missing_header"),
-    # Must precede the generic ("https",) tls rule below: the redirect
-    # finding is about a missing 301 upgrade, NOT weak ciphers — the scan
-    # never tested cipher suites, so routing it to the "tls" playbook gave
-    # inaccurate attack paths/remediation (SWEET32/BEAST class issues).
     (("redirect",), "https_redirect"),
     (("sensitive", "path exposed", "publicly accessible", ".env", ".git"), "sensitive_path"),
     (("tls", "certificate", "https"), "tls"),
@@ -281,8 +271,6 @@ def playbook_for(title: str, description: str = "") -> dict:
 
 # ----------------------------------------------------------------------
 # Exploitation / verification guidance (offline, deterministic).
-# Ethical-use note: these are safe VERIFICATION steps a tester may run
-# inside the signed scope of a penetration test — not weaponised exploits.
 # ----------------------------------------------------------------------
 _EXPLOIT_GUIDES: dict[str, dict] = {
     "missing_header": {
@@ -372,10 +360,7 @@ _EXPLOIT_GUIDES: dict[str, dict] = {
 def exploit_guide_for(title: str, description: str = "",
                       finding: dict | None = None) -> dict:
     """Return exploitation/verification guidance keyed off the same playbook
-    matcher used for remediation. When the finding carries a CVE tag whose
-    attack surface is NOT the listening service (client-side, config- or
-    protocol-dependent), replace the generic 'Direct exploitation of the
-    vulnerable service' path with one that matches the actual check."""
+    matcher used for remediation."""
     text = f"{title} {description}".lower()
     guide = dict(_EXPLOIT_GUIDES["default"])
     for keywords, name in _KEYWORD_MAP:
@@ -400,6 +385,11 @@ def enrich_findings(findings: list[dict]) -> list[dict]:
     """Attach cvss_score (if vector available), normalized severity and a
     remediation playbook to each finding dict. Mutates and returns the list."""
     tag_cve_findings(findings)
+    try:
+        from smartvapt_fixes import adjust_severity as _adjust
+    except ImportError:
+        _adjust = None
+
     for f in findings:
         vec = f.get("cvss_vector")
         if vec and f.get("cvss") in (None, 0):
@@ -411,29 +401,28 @@ def enrich_findings(findings: list[dict]) -> list[dict]:
                 f["severity"] = severity_from_cvss(float(f["cvss"]))
             except (TypeError, ValueError):
                 pass
-        # Banner-matched CVEs are hypotheses, not confirmed vulnerabilities.
-        # Client/config/protocol-surface CVEs additionally cannot be scored
-        # as direct server risk; cap them at 'medium' and mark unconfirmed.
+
         if f.get("cve"):
-            if not f.get("confirmed"):
-                f["confirmed"] = False
-                f.setdefault("confidence", "unconfirmed (banner-based)")
-            if f.get("cve_surface") not in (None, "server"):
-                from findings import SEVERITY_ORDER
-                if SEVERITY_ORDER.get(str(f.get("severity", "")).lower(), 0) \
-                        > SEVERITY_ORDER["medium"]:
-                    f["severity"] = "medium"
-                    f["severity_downgrade_reason"] = (
-                        f"CVE is {f['cve_surface']}-surface, not a directly "
-                        "exploitable server flaw")
+            if _adjust is not None:
+                _adjust(f)
+            else:
+                if not f.get("confirmed"):
+                    f["confirmed"] = False
+                    f.setdefault("confidence", "unconfirmed (banner-based)")
+                if f.get("cve_surface") not in (None, "server"):
+                    from findings import SEVERITY_ORDER
+                    if SEVERITY_ORDER.get(str(f.get("severity", "")).lower(), 0) > SEVERITY_ORDER["medium"]:
+                        f["severity"] = "medium"
+                        f["severity_downgrade_reason"] = (
+                            f"CVE is {f['cve_surface']}-surface, not a directly "
+                            "exploitable server flaw")
+
         if not f.get("remediation_steps"):
             pb = playbook_for(f.get("title", ""), f.get("description", ""))
             f["remediation_steps"] = pb["steps"]
             f["remediation_commands"] = pb["commands"]
             if pb["owasp"] and not f.get("owasp"):
                 f["owasp"] = pb["owasp"]
-        # Ethical-use note: these are safe VERIFICATION steps for use inside
-        # the signed scope of a penetration test — not weaponised exploits.
         f["exploitation"] = exploit_guide_for(f.get("title", ""),
                                               f.get("description", ""),
                                               finding=f)

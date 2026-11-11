@@ -22,8 +22,7 @@ def add_all(fs: FindingSet, items):
     for f in items or []:
         try:
             if isinstance(f, dict):
-                fs.add(Finding(**{k: v for k, v in f.items()
-                                  if k in Finding.__dataclass_fields__}))
+                fs.add(Finding(**{k: v for k, v in f.items() if k in Finding.__dataclass_fields__}))
             else:
                 fs.add(f)
         except Exception as fe:
@@ -33,7 +32,7 @@ def add_all(fs: FindingSet, items):
 def main():
     args = sys.argv[1:]
     target = args[0] if args else "scanme.nmap.org"
-    ports = "top1000"  # default: nmap Top 1000 ports (see portsets.py)
+    ports = "top1000"
     rest = []
     i = 1
     while i < len(args):
@@ -44,7 +43,7 @@ def main():
             rest.append(args[i])
             i += 1
     opts = {a.lower() for a in rest}
-    scan_nuclei = "no-nuclei" not in opts  # nuclei is ON by default
+    scan_nuclei = "no-nuclei" not in opts
     scan_network = "no-network" not in opts
     scan_web = "no-web" not in opts
     scan_dns = "no-dns" not in opts
@@ -59,7 +58,6 @@ def main():
     findings = FindingSet()
     results = {"target": target, "scan_id": scan_id}
 
-    # Step 0: IP geolocation & hosting lookup (where the website is set up)
     if "no-geo" not in opts:
         print("[*] IP Geolocation & Hosting Lookup...")
         try:
@@ -77,33 +75,24 @@ def main():
             ns = NetworkScanner(net_target, evidence=evidence)
             net_result = ns.scan(ports=ports, os_detect=False, progress_cb=log)
             results["network"] = net_result
-            # Record the exact port selection for the report ("top1000" or a
-            # literal range like "1-1000").
             results["ports_requested"] = ports
             add_all(findings, net_result.get("findings"))
         except Exception as e:
             results["network"] = {"error": str(e)}
             print(f"[!] network error: {e}")
 
-    http_services = ((results.get("network") or {}).get("http_services")
-                     or [])
+    http_services = ((results.get("network") or {}).get("http_services") or [])
     if not http_services and scan_web:
-        # Network scan unavailable/failed -> probe common HTTP ports directly
-        # so gobuster still has an nmap-equivalent discovery step.
         from portsets import probe_http_ports
         http_services = probe_http_ports(net_target)
         if http_services:
-            print(f"[i] direct probe found HTTP on port "
-                  f"{http_services[0]['port']} -> {http_services[0]['url']}")
+            print(f"[i] direct probe found HTTP on port {http_services[0]['port']} -> {http_services[0]['url']}")
     if scan_web:
         print("[*] Web app audit...")
         try:
             ws = WebScanner(target, evidence=evidence)
             if http_services:
                 det_url = http_services[0].get("url") or ""
-                # Always sync port/service metadata with what nmap -sV (or the
-                # direct probe) actually observed; re-point whenever the
-                # detected URL differs from the assumed one.
                 ws.set_target(det_url,
                               port=http_services[0].get("port"),
                               service=http_services[0].get("service"))
@@ -111,13 +100,11 @@ def main():
                 req_port = _up(target if "://" in target else "http://" + target).port
                 det_port = _up(det_url).port
                 if det_port and det_port not in (req_port, 80, 443):
-                    print(f"[i] nmap -sV found HTTP on port {det_port}; "
-                          f"web audit re-pointed to {ws.target}")
+                    print(f"[i] nmap -sV found HTTP on port {det_port}; web audit re-pointed to {ws.target}")
             web_result = {
                 "headers": ws.check_headers(),
                 "technologies": ws.detect_technologies(),
-                "directories": ws.gobuster_scan(progress_cb=log,
-                                                http_services=http_services),
+                "directories": ws.gobuster_scan(progress_cb=log, http_services=http_services),
                 "tls": ws.analyze_tls(),
                 "robots_sitemap": ws.fetch_robots_sitemap(),
                 "sensitive_paths": ws.probe_sensitive_paths(),
@@ -147,8 +134,7 @@ def main():
     if scan_nuclei:
         print("[*] Nuclei template scan...")
         try:
-            nuc_target = (((results.get("web") or {}).get("directories") or {})
-                          .get("target")) \
+            nuc_target = (((results.get("web") or {}).get("directories") or {}).get("target")) \
                 or (results.get("network") or {}).get("primary_http_url") or target
             nsc = NucleiScanner(nuc_target, evidence=evidence, rate_limit=10)
             nuc_result = nsc.scan(progress_cb=log)
@@ -179,9 +165,6 @@ def main():
         except Exception as e:
             results["api"] = {"error": str(e)}
 
-    # ---- Ubuntu backport-aware CVE validation (smartvapt_fixes) ----
-    # Banner-matched CVEs on distro builds are hypotheses: cross-check each
-    # one against Ubuntu's security tracker and demote/exclude patched ones.
     patched_cves, validated_counts = [], {}
     net = results.get("network") or {}
     ssh_banner = ""
@@ -200,19 +183,16 @@ def main():
                 break
     cve_fs = [f for f in findings.list() if getattr(f, "cve", None)]
     if ssh_banner and cve_fs:
-        print(f"[*] Validating {len(cve_fs)} banner-matched CVEs against "
-              "Ubuntu security data...")
+        ssh_cve_fs = [f for f in cve_fs if str(f.service or "").lower() == "ssh"]
+        print(f"[*] Validating {len(ssh_cve_fs)} SSH CVEs against Ubuntu security data...")
         try:
             import smartvapt_fixes as sf
-            dicts = [f.to_dict() for f in cve_fs]
-            buckets = sf.apply_validations(dicts, ssh_banner)
+            dicts = [f.to_dict() for f in ssh_cve_fs]
+            buckets = sf.apply_validations(dicts, ssh_banner, service_filter="ssh")
             validated_counts = {k: len(v) for k, v in buckets.items()}
             patched_cves = sorted({f["cve"] for f in buckets["patched"]})
-            # apply_validations() mutates the dict objects we passed in and
-            # sorts them into buckets, so identify patched entries by object
-            # identity of the *input* dicts (not the Finding dataclasses).
             patched_ids = {id(f) for f in buckets["patched"]}
-            for f, d in zip(cve_fs, dicts):
+            for f, d in zip(ssh_cve_fs, dicts):
                 if id(d) in patched_ids:
                     findings.remove(f.id)
                 else:
@@ -224,8 +204,7 @@ def main():
             results["ssh_banner"] = ssh_banner
             results["cve_validation"] = {
                 "banner": ssh_banner,
-                "release": __import__("smartvapt_fixes"
-                                      ).ubuntu_release_for_banner(ssh_banner),
+                "release": __import__("smartvapt_fixes").ubuntu_release_for_banner(ssh_banner),
                 "counts": validated_counts,
                 "patched": patched_cves,
             }
@@ -271,8 +250,7 @@ def main():
     print(f"Report   : {pdf_path}")
 
     with open(f"results_{scan_id}.json", "w") as fh:
-        json.dump({"results": results, "ai": ai_result}, fh,
-                  indent=2, default=str)
+        json.dump({"results": results, "ai": ai_result}, fh, indent=2, default=str)
 
 
 if __name__ == "__main__":

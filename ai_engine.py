@@ -1,12 +1,8 @@
-
 import json
 
 from google import genai
 
 from config import GEMINI_API_KEY, GEMINI_MODEL
-
-# Note: google-genai SDK uses different safety setting format
-# Safety settings are configured per-request if needed
 
 SYSTEM_PROMPT = """You are a Senior Penetration Tester and CISO advisor.
 You will receive raw vulnerability data from an automated VAPT scan covering:
@@ -42,8 +38,6 @@ class AIEngine:
         self.api_key = api_key or GEMINI_API_KEY
         if not self.api_key or self.api_key == "YOUR_GEMINI_API_KEY_HERE":
             raise ValueError("GEMINI_API_KEY not configured. Set env var or edit config.py")
-        
-        # New SDK client initialization
         self.client = genai.Client(api_key=self.api_key)
 
     def analyze(self, findings: list, scan_summary: dict) -> dict:
@@ -52,9 +46,7 @@ class AIEngine:
             response = self.client.models.generate_content(
                 model=GEMINI_MODEL,
                 contents=prompt,
-                config={
-                    "system_instruction": SYSTEM_PROMPT,
-                }
+                config={"system_instruction": SYSTEM_PROMPT},
             )
             text = response.text.strip()
             if text.startswith("```"):
@@ -71,7 +63,6 @@ class AIEngine:
                 "conclusion": "AI returned non-JSON response.",
             }
         except Exception as e:
-            # Fallback: deterministic report from findings (no AI)
             fallback = self._fallback_summary(findings)
             fallback["conclusion"] = (
                 f"Note: AI analysis unavailable ({type(e).__name__}). "
@@ -96,59 +87,69 @@ Return ONLY JSON. No markdown. No explanations outside JSON.
     @staticmethod
     def _fallback_summary(findings: list) -> dict:
         """Generate a real executive summary from findings without the AI."""
-        counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+        confirmed = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+        unconfirmed = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
         for f in findings:
             sev = (f.get("severity") or "").lower()
-            if sev in counts:
-                counts[sev] += 1
+            if sev not in confirmed:
+                continue
+            conf = str(f.get("confidence") or "").lower()
+            if ("unconfirmed" in conf or "patched" in conf or "banner" in conf
+                    or (f.get("cve") and not f.get("confirmed"))):
+                unconfirmed[sev] += 1
+            else:
+                confirmed[sev] += 1
 
         total = len(findings)
-        if counts["critical"]:
-            risk, score = "Critical", min(10, 8 + counts["critical"] * 0.5)
-        elif counts["high"]:
-            risk, score = "High", 6 + min(2, counts["high"] * 0.4)
-        elif counts["medium"]:
+        n_conf = sum(confirmed.values())
+        n_unconf = sum(unconfirmed.values())
+
+        if confirmed["critical"]:
+            risk, score = "Critical", min(10, 8 + confirmed["critical"] * 0.5)
+        elif confirmed["high"]:
+            risk, score = "High", min(10, 6 + confirmed["high"] * 0.4)
+        elif confirmed["medium"]:
             risk, score = "Medium", 4.0
-        elif counts["low"] or counts["info"]:
+        elif confirmed["low"] or confirmed["info"]:
             risk, score = "Low", 2.0
+        elif n_unconf:
+            risk, score = "Medium", 3.0
         else:
             risk, score = "Low", 1.0
 
         summary = (
-            f"SmartVAPT identified {total} findings across the assessed attack surface "
-            f"— {counts['critical']} critical, {counts['high']} high, "
-            f"{counts['medium']} medium, {counts['low']} low, {counts['info']} informational. "
-            f"Overall risk has been rated {risk.upper()} ({score:.1f}/10) based on the "
-            f"highest-severity issues discovered. Immediate attention is recommended for "
-            f"all critical and high severity findings."
+            f"SmartVAPT identified {total} findings across the assessed attack surface. "
+            f"{n_conf} were confirmed by an active check "
+            f"({confirmed['critical']} critical, {confirmed['high']} high, "
+            f"{confirmed['medium']} medium, {confirmed['low']} low, {confirmed['info']} info); "
+            f"the remaining {n_unconf} are banner-matched CVE hypotheses "
+            f"(distro backports may already cover many). Overall risk has been rated "
+            f"{risk.upper()} ({score:.1f}/10) based on confirmed findings only."
         )
 
-        top = sorted(findings, key=lambda f: (
-            -{"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
-            .get((f.get("severity") or "").lower(), 0)
-        ))[:10]
+        order = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
+        def rank(f):
+            conf = str(f.get("confidence") or "").lower()
+            confirmed_flag = 0 if ("unconfirmed" in conf or "patched" in conf) else 1
+            return (confirmed_flag, order.get(str(f.get("severity", "")).lower(), 0),
+                    float(f.get("cvss") or 0))
+        top = sorted(findings, key=rank, reverse=True)[:10]
 
         return {
             "executive_summary": summary,
             "overall_risk": risk,
             "risk_score": round(score, 1),
             "top_findings": [
-                {
-                    "title": f.get("title", ""),
-                    "severity": (f.get("severity") or "").capitalize(),
-                    "business_impact": f.get("description", ""),
-                    "remediation": f.get("remediation", ""),
-                }
-                for f in top
+                {"title": f.get("title", ""),
+                 "severity": (f.get("severity") or "").capitalize(),
+                 "business_impact": f.get("description", ""),
+                 "remediation": f.get("remediation", "")} for f in top
             ],
             "technical_remediation": [
-                {
-                    "finding": f.get("title", ""),
-                    "owasp": f.get("owasp", "N/A"),
-                    "steps": [f.get("remediation", "See finding description.")],
-                    "commands": [],
-                }
-                for f in top if f.get("severity") in ("critical", "high")
+                {"finding": f.get("title", ""),
+                 "owasp": f.get("owasp", "N/A"),
+                 "steps": [f.get("remediation", "See finding description.")],
+                 "commands": []} for f in top if f.get("severity") in ("critical", "high")
             ],
             "conclusion": "",
         }
