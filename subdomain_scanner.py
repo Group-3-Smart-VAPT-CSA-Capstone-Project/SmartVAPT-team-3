@@ -73,6 +73,32 @@ class SubdomainScanner:
         self._resolver = dns.resolver.Resolver()
         self._resolver.timeout = timeout
         self._resolver.lifetime = timeout
+        self._a_cache: dict[str, list[str]] = {}
+        self._cname_cache: dict[str, str | None] = {}
+
+    def _resolve_a(self, host: str) -> list[str]:
+        cached = self._a_cache.get(host)
+        if cached is not None:
+            return cached
+        try:
+            answers = self._resolver.resolve(host, "A")
+            ips = sorted({r.address for r in answers})
+        except Exception:
+            ips = []
+        self._a_cache[host] = ips
+        return ips
+
+    def _resolve_cname(self, host: str) -> str | None:
+        cached = self._cname_cache.get(host)
+        if cached is not None:
+            return cached
+        try:
+            cnames = list(self._resolver.resolve(host, "CNAME"))
+            cname = str(cnames[0].target).rstrip(".").lower() if cnames else None
+        except Exception:
+            cname = None
+        self._cname_cache[host] = cname
+        return cname
 
     # ------------------------------------------------------------------
     def enumerate(self, progress_cb: Callable[[str], None] | None = None,
@@ -122,12 +148,13 @@ class SubdomainScanner:
         # Only keep hosts that actually resolve
         live = []
         for entry in found.values():
-            try:
-                ans = self._resolver.resolve(entry["host"], "A")
-                entry["ips"] = sorted({r.address for r in ans})
-            except Exception:
+            ips = self._resolve_a(entry["host"])
+            if not ips:
                 if not entry["ips"]:
                     continue
+                entry["ips"] = sorted(set(entry["ips"]))
+            else:
+                entry["ips"] = ips
             entry["sources"] = sorted(entry["sources"])
             live.append(entry)
         live.sort(key=lambda e: e["host"])
@@ -202,19 +229,11 @@ class SubdomainScanner:
 
         def check(prefix: str):
             host = f"{prefix}.{self.domain}"
-            try:
-                answers = self._resolver.resolve(host, "A")
-                ips = sorted({r.address for r in answers})
-                cname = None
-                try:
-                    cnames = list(self._resolver.resolve(host, "CNAME"))
-                    if cnames:
-                        cname = str(cnames[0].target).rstrip(".").lower()
-                except Exception:
-                    pass
-                return host, {"ips": ips, "cname": cname}
-            except Exception:
+            ips = self._resolve_a(host)
+            if not ips:
                 return host, None
+            cname = self._resolve_cname(host)
+            return host, {"ips": ips, "cname": cname}
 
         done = 0
         with ThreadPoolExecutor(max_workers=self.threads) as pool:
@@ -239,34 +258,43 @@ class SubdomainScanner:
     def check_takeovers(self, subdomains: list[dict], progress_cb=None
                         ) -> list[dict[str, str]]:
         """Detect-only dangling CNAME checks against known service fingerprints."""
-        risks: list[dict[str, str]] = []
+        candidates: list[tuple[str, str, str, str, list[str]]] = []
         for entry in subdomains:
             host = entry["host"]
             cname = entry.get("cname")
             if not cname:
-                try:
-                    ans = list(self._resolver.resolve(host, "CNAME"))
-                    cname = str(ans[0].target).rstrip(".").lower() if ans else None
-                except Exception:
-                    cname = None
+                cname = self._resolve_cname(host)
             if not cname or not CNAME_SAFE.match(cname):
                 continue
             for suffix, (service, url_tpl, fingerprints) in TAKEOVER_FINGERPRINTS.items():
                 if not cname.endswith(suffix):
                     continue
-                url = url_tpl.format(host=host)
-                try:
-                    if progress_cb:
-                        progress_cb(f"[recon] takeover probe {host} -> {cname}")
-                    r = requests.get(url, timeout=self.timeout,
-                                     allow_redirects=False)
-                    body = r.text[:4000]
-                    for fp in fingerprints:
-                        if fp.lower() in body.lower():
-                            risks.append({"host": host, "cname": cname,
-                                          "service": service, "matched": fp})
-                            break
-                except requests.RequestException:
-                    continue
+                candidates.append((host, cname, service, url_tpl.format(host=host), fingerprints))
                 break
+
+        if not candidates:
+            return []
+
+        def probe(item: tuple[str, str, str, str, list[str]]) -> dict[str, str] | None:
+            host, cname, service, url, fingerprints = item
+            try:
+                if progress_cb:
+                    progress_cb(f"[recon] takeover probe {host} -> {cname}")
+                r = requests.get(url, timeout=self.timeout, allow_redirects=False)
+                body = r.text[:4000]
+                for fp in fingerprints:
+                    if fp.lower() in body.lower():
+                        return {"host": host, "cname": cname,
+                                "service": service, "matched": fp}
+            except requests.RequestException:
+                return None
+            return None
+
+        risks: list[dict[str, str]] = []
+        with ThreadPoolExecutor(max_workers=min(8, max(1, len(candidates)))) as pool:
+            futures = [pool.submit(probe, item) for item in candidates]
+            for fut in as_completed(futures):
+                risk = fut.result()
+                if risk:
+                    risks.append(risk)
         return risks

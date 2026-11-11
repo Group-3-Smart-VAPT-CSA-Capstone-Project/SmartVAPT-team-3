@@ -38,25 +38,25 @@ class NucleiScanner:
         return shutil.which("nuclei") is not None
 
     def scan(self, progress_cb: Callable[[str], None] | None = None,
-             stop_flag: dict | None = None) -> dict[str, Any]:
+              stop_flag: dict | None = None) -> dict[str, Any]:
         result: dict[str, Any] = {"target": self.target, "available": False,
                                   "matched": [], "findings": [], "error": None}
         if not self.available():
             result["error"] = ("nuclei binary not found. Install it: "
-                               "sudo apt install nuclei  (or download from "
-                               "https://github.com/projectdiscovery/nuclei)")
+                                "sudo apt install nuclei  (or download from "
+                                "https://github.com/projectdiscovery/nuclei)")
             return result
         result["available"] = True
 
         cmd = ["nuclei", "-u", self.target, "-jsonl", "-silent",
-               "-rl", str(self.rate_limit), "-timeout", "5"]
+                "-rl", str(self.rate_limit), "-timeout", "5"]
         if self.templates_dir and os.path.isdir(self.templates_dir):
             cmd += ["-t", self.templates_dir]
         # Authenticated scanning: nuclei accepts headers via -H "Name: value".
         for k, v in self.auth_headers.items():
             cmd += ["-H", f"{k}: {v}"]
 
-        lines: list[str] = []
+        raw_lines: list[str] = []
         try:
             proc = run_logged(cmd, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT)
@@ -69,7 +69,9 @@ class NucleiScanner:
                 stripped = line.strip()
                 if not stripped:
                     continue
-                lines.append(stripped)
+                raw_lines.append(stripped)
+                if len(raw_lines) > 2000:
+                    del raw_lines[:-2000]
                 if progress_cb and stripped.startswith("{"):
                     try:
                         evt = json.loads(stripped)
@@ -85,7 +87,7 @@ class NucleiScanner:
             proc.kill()
             result["error"] = f"nuclei timed out after {self.timeout}s"
 
-        raw = "\n".join(lines)
+        raw = "\n".join(raw_lines)
         if self.evidence:
             try:
                 self.evidence.save_raw("nuclei_output", raw)
@@ -94,7 +96,7 @@ class NucleiScanner:
 
         idx = 0
         seen = set()
-        for line in lines:
+        for line in raw_lines:
             if not line.startswith("{"):
                 continue
             try:
@@ -126,7 +128,7 @@ class NucleiScanner:
                 severity=sev,
                 description=info["name"],
                 evidence=f"{info['url']} matched template {tid}"
-                         + (f" [{matcher}]" if matcher else ""),
+                          + (f" [{matcher}]" if matcher else ""),
                 cve=self._first_cve(tid, evt),
                 cvss=float(info["cvss"]) if isinstance(info["cvss"], (int, float)) else None,
                 owasp=self._map_owasp(info["tags"]),
