@@ -101,15 +101,29 @@ def main():
                 det_port = _up(det_url).port
                 if det_port and det_port not in (req_port, 80, 443):
                     print(f"[i] nmap -sV found HTTP on port {det_port}; web audit re-pointed to {ws.target}")
+            # Isolate every web sub-check: one crashing or hanging must not
+            # remove the others (e.g. gobuster results) from the report.
+            def _safe_web(fn):
+                try:
+                    return fn()
+                except Exception as e:
+                    print(f"[!] web sub-check failed, continuing: {e}")
+                    return {"error": str(e)}
+
             web_result = {
-                "headers": ws.check_headers(),
-                "technologies": ws.detect_technologies(),
-                "directories": ws.gobuster_scan(progress_cb=log, http_services=http_services),
-                "tls": ws.analyze_tls(),
-                "robots_sitemap": ws.fetch_robots_sitemap(),
-                "sensitive_paths": ws.probe_sensitive_paths(),
-                "redirects": ws.analyze_redirects(),
+                "headers": _safe_web(ws.check_headers),
+                "technologies": _safe_web(ws.detect_technologies),
+                "directories": _safe_web(lambda: ws.gobuster_scan(
+                    progress_cb=log, http_services=http_services)),
+                "tls": _safe_web(ws.analyze_tls),
+                "robots_sitemap": _safe_web(ws.fetch_robots_sitemap),
+                "sensitive_paths": _safe_web(ws.probe_sensitive_paths),
+                "redirects": _safe_web(ws.analyze_redirects),
             }
+            failed_subchecks = [k for k, v in web_result.items()
+                                if isinstance(v, dict) and v.get("error")]
+            if failed_subchecks:
+                web_result["partial_errors"] = failed_subchecks
             results["web"] = web_result
             for key in ("headers", "directories", "tls", "robots_sitemap",
                         "sensitive_paths", "redirects"):
