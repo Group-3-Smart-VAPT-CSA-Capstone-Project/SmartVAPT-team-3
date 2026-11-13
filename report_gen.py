@@ -284,10 +284,21 @@ def _render_pentest_details(pdf, scan_data: dict):
             detail = ""
         body(f"Nuclei template scan (DEFAULT active web scanner): enabled, "
              f"{len(nuclei.get('matched', []) or [])} match(es){detail}")
+        if nuclei.get("error"):
+            # Crash/timeout mid-scan: state it, but the partial matches and
+            # all other vectors remain in this report.
+            note = ("partial results reported" if nuclei.get("partial")
+                    else "results may be incomplete")
+            body(f"NOTE: nuclei did not finish cleanly ({nuclei['error']}) — "
+                 f"{note}; every other scan vector completed independently.")
     elif nuclei:
         body(f"Nuclei (default template scanner): unavailable this run — "
              f"{nuclei.get('error') or 'skipped'}. Install the 'nuclei' "
              "binary to enable it.")
+    if web.get("partial_errors"):
+        body(f"NOTE: some web sub-checks failed this run "
+             f"({', '.join(web['partial_errors'])}); the remaining web "
+             "results and all other vectors are included below.")
     body("Rules of engagement: all steps above are non-destructive checks "
          "performed within the authorized scope of this assessment.")
 
@@ -546,6 +557,8 @@ def _render_appendix(pdf, scan_data: dict):
     nuc = scan_data.get("nuclei", {}) or {}
     if nuc.get("matched"):
         h2("E. Nuclei Template Matches")
+        if nuc.get("error") and nuc.get("partial"):
+            body(f"(partial run — nuclei stopped early: {nuc['error']})")
         for m in nuc["matched"][:40]:
             body(f"  - [{str(m.get('severity','?')).upper()}] "
                  f"{m.get('name')} ({m.get('template')}) -> {m.get('url')}")

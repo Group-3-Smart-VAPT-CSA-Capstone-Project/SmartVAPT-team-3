@@ -352,17 +352,36 @@ if run:
                 ws.set_target(det_url,
                               port=http_services[0].get("port"),
                               service=http_services[0].get("service"))
+            # Each web sub-check is isolated: if one crashes or hangs out,
+            # the remaining ones still run so the report keeps every partial
+            # result (e.g. gobuster output survives a headers failure).
+            def _safe_web(fn):
+                try:
+                    return fn()
+                except (ScanStopped, RuntimeError) as e:
+                    if isinstance(e, ScanStopped) or "stopped" in str(e).lower():
+                        raise
+                    return {"error": str(e)}
+                except Exception as e:
+                    return {"error": str(e)}
+
             web_result = {
-                "headers": ws.check_headers(),
-                "technologies": ws.detect_technologies(),
-                "directories": ws.gobuster_scan(
+                "headers": _safe_web(ws.check_headers),
+                "technologies": _safe_web(ws.detect_technologies),
+                "directories": _safe_web(lambda: ws.gobuster_scan(
                     progress_cb=run_cb, stop_flag=ctrl,
-                    http_services=http_services),
-                "tls": ws.analyze_tls(),
-                "robots_sitemap": ws.fetch_robots_sitemap(),
-                "sensitive_paths": ws.probe_sensitive_paths(),
-                "redirects": ws.analyze_redirects(),
+                    http_services=http_services)),
+                "tls": _safe_web(ws.analyze_tls),
+                "robots_sitemap": _safe_web(ws.fetch_robots_sitemap),
+                "sensitive_paths": _safe_web(ws.probe_sensitive_paths),
+                "redirects": _safe_web(ws.analyze_redirects),
             }
+            failed_subchecks = [k for k, v in web_result.items()
+                                if isinstance(v, dict) and v.get("error")]
+            if failed_subchecks:
+                web_result["partial_errors"] = failed_subchecks
+                st.warning("Some web sub-checks failed but the scan "
+                           f"continued: {', '.join(failed_subchecks)}")
             results["web"] = web_result
             results["web_audited_url"] = ws.target
             from findings import Finding
@@ -786,6 +805,10 @@ if run:
         if not (nuc.get("available") or nuc.get("matched")):
             st.info(nuc.get("error") or "Nuclei vector not run.")
         elif nuc.get("matched"):
+            if nuc.get("error"):
+                st.warning(f"Nuclei stopped early ({nuc['error']}) — showing "
+                           "partial results; all other vectors completed "
+                           "normally and are included in the report.")
             st.dataframe(pd.DataFrame(nuc["matched"]),
                          use_container_width=True, hide_index=True)
         else:
