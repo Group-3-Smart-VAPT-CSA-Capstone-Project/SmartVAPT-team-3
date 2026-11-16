@@ -1,6 +1,6 @@
 # 🛡️ SmartVAPT — Tri-Vector Attack Surface Analyzer & AI Reporting Engine
 
-SmartVAPT is an automated Vulnerability Assessment & Penetration Testing (VAPT) tool with a Streamlit dashboard. It combines **three scan vectors** — network, web application, and DNS/email security — into a single workflow and produces a professional, evidence-backed **PDF report**, optionally enriched with **AI-generated narratives** via Google Gemini.
+SmartVAPT is an automated Vulnerability Assessment & Penetration Testing (VAPT) tool with a Streamlit dashboard. It combines **three scan vectors** — network, web application, and DNS/email security — into a single, evidence-backed assessment workflow.
 
 Built as part of the **ICT Academy of Kerala – Cyber Security Analyst (VAPT)** program.
 
@@ -21,10 +21,10 @@ The developers accept no liability for misuse and criminal proceedings may be in
 
 | Vector | Tooling | Checks |
 |---|---|---|
-| **Network Scan** | Nmap (`--top-ports 1000` default = the 1000 most-used ports of all 65535; custom ranges via `-p`) + `vulners` NSE script + version detection `-sV` | Port discovery, service/version detection, CVE correlation. HTTP-speaking ports are located by `-sV` and passed to the web vector |
-| **Web App Audit** | Python requests, OpenSSL, gobuster (targets the nmap `-sV`-detected HTTP port — not hardcoded 80), **Nuclei (default template scanner)** | HTTP security headers, TLS analysis, technology fingerprinting, directory & sensitive-path enumeration on the confirmed HTTP port, Nuclei template matches, robots.txt/sitemap review |
+| **Network Scan** | Nmap (`--top-ports 1000` default = the 1000 most-used ports of all 65535; custom ranges via `-p`) + `vulners` NSE script + version detection `-sV` | Port discovery, service/version fingerprinting, and common vulnerability checks |
+| **Web App Audit** | Python requests, OpenSSL, gobuster (targets the nmap `-sV`-detected HTTP port — not hardcoded 80), **Nuclei (default template scanner)** | HTTP security headers, TLS analysis, directory enumeration, and app-hardening checks |
 | **DNS / Email Security** | `dig` / host lookups | SPF record, DMARC record, MX and related DNS hygiene |
-| **IP Geolocation & Hosting** | `geo_locator.py` (free GeoIP APIs: ip-api.com / ipwho.is) | Locate the target IP (country/region/city, lat/lon, timezone), identify where the website is set up (hosting provider, ISP, ASN, reverse DNS) and the web server port/software. Private IPs are never sent to external services |
+| **IP Geolocation & Hosting** | `geo_locator.py` (free GeoIP APIs: ip-api.com / ipwho.is) | Locate the target IP (country/region/city, lat/lon, timezone), identify where the website is set up (hosting provider / regional location) |
 | **Findings Engine** | `findings.py` | Normalizes all findings, deduplicates, assigns severity (Critical / High / Medium / Low / Info) |
 | **Evidence Store** | `evidence.py` | Saves raw tool output per scan (`evidence/<scan_id>/`) so every finding is reproducible |
 | **AI Reporting** | Google Gemini (`ai_engine.py`) | Executive summary, per-finding impact analysis, prioritized remediation roadmap (optional — requires API key) |
@@ -47,13 +47,13 @@ The PDF report can be automatically enriched with an **executive summary, per-fi
 
 1. Get a free API key: <https://aistudio.google.com/apikey>
 2. Set it in your shell (add to `~/.bashrc` to make it permanent):
-   ```bash
-   export GEMINI_API_KEY="your-api-key-here"   # your key — never commit this to git
-   ```
+    ```bash
+    export GEMINI_API_KEY="your-api-key-here"   # your key — never commit this to git
+    ```
 3. Launch the dashboard and tick **"Enable AI analysis"** before starting a scan:
-   ```bash
-   streamlit run main.py
-   ```
+    ```bash
+    streamlit run main.py
+    ```
 4. Download the PDF — AI narratives are embedded per finding and in the executive summary.
 
 > Without a key, the tool still works fully; the AI section is skipped gracefully.
@@ -80,8 +80,8 @@ sudo apt install -y nmap gobuster dnsutils libpango-1.0-0 \
 
 ### Option A — One-command installer
 ```bash
-git clone https://github.com/lichenvarghese-cyber/SmartVAPT.git
-cd SmartVAPT
+git clone https://github.com/Group-3-Smart-VAPT-CSA-Capstone-Project/SmartVAPT-team-3.git
+cd SmartVAPT-team-3
 chmod +x install.sh
 ./install.sh
 ```
@@ -89,8 +89,8 @@ chmod +x install.sh
 
 ### Option B — Manual
 ```bash
-git clone https://github.com/lichenvarghese-cyber/SmartVAPT.git
-cd SmartVAPT
+git clone https://github.com/Group-3-Smart-VAPT-CSA-Capstone-Project/SmartVAPT-team-3.git
+cd SmartVAPT-team-3
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -109,9 +109,9 @@ Then open **http://localhost:8501** in your browser.
 ### Using the dashboard
 1. Enter a **Target** (IP, domain, or URL).
 2. Toggle the scan vectors you want:
-   - ☑ Network Scan (Nmap + vulners)
-   - ☑ Web App Audit (headers + dirs)
-   - ☑ DNS / Email Security (SPF + DMARC)
+    - ☑ Network Scan (Nmap + vulners)
+    - ☑ Web App Audit (headers + dirs)
+    - ☑ DNS / Email Security (SPF + DMARC)
 3. Set the **port range** (default `1-1000`).
 4. Click **Run SmartVAPT Scan**.
 5. Review live progress, the findings table, and download the **PDF report**.
